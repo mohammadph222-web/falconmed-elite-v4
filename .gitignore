@@ -1,0 +1,20 @@
+# dependencies & builds
+node_modules/
+dist/
+build/
+coverage/
+
+# secrets — never commit any env file except the examples
+.env
+.env.*
+*.env
+.env*.txt
+!.env.example
+
+# logs & OS/editor noise
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
