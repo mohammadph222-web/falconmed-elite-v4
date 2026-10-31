@@ -1,4 +1,4 @@
-# FalconMed Elite v4.5
+# FalconMed Elite v4.6
 
 **Pharmacy queue performance analytics, from the queue machine to the counter to the network view.**
 
@@ -20,6 +20,7 @@ It is **multi-tenant**: several pharmacy groups can share one deployment, and ea
 | **Network admin** | Network overview | Branch scorecard with status bands, on-time ranking, network trends, top pharmacists, drill-down into any branch |
 | Manager / admin | Live queue | Real-time waiting list colour-coded against the wait target, counters in service, last-hour pulse, alerts |
 | Manager / admin | Queue simulator | Registers arrivals exactly like a kiosk (single, rush of 10, or Poisson auto-arrivals), to test the system end to end |
+| **New pharmacy** | Create your organisation | Self-service sign-up with a 14-day free trial; a getting-started checklist (branch → team → data) guides the first visit |
 | **Organisation admin** | Settings | Add and edit branches and team members, assign roles and counters, deactivate accounts, reset passwords (temporary password + forced change at first sign-in). Demo records are protected |
 | Everyone | My account | Profile and password change; changing it signs out every other device |
 | Manager / admin | Import data | Load a CSV export from any queue system. A data-quality report (score, rejected rows with reasons, warnings, privacy guard) appears before anything is saved; every import can be rolled back. See [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) |
@@ -50,7 +51,7 @@ flowchart LR
 | Frontend | React 18, Vite 5, Tailwind CSS, Recharts, React Router 7, lucide icons. Route-level code splitting. |
 | Backend | Node 20, Express 4, `pg`, zod validation, JWT + bcrypt, helmet, rate limiting |
 | Database | PostgreSQL 16 (Neon). Versioned SQL migrations, check constraints that make invalid ticket states impossible. |
-| Testing | 57 end-to-end API tests (`node:test` + supertest) against a real PostgreSQL |
+| Testing | 63 end-to-end API tests (`node:test` + supertest) against a real PostgreSQL |
 | Hosting | Vercel + Render + Neon + Cloudflare, all free tier |
 
 ## Quick start
@@ -80,7 +81,7 @@ cd backend
 DATABASE_URL=postgresql://…/a_disposable_db npm test
 ```
 
-The tests cover: authentication and forged tokens; role scoping (pharmacist / manager / admin boundaries); SQL-injection and invalid-date rejection; KPI reconciliation against raw SQL; staff = pharmacists, with counts summing to the branch; hourly and daily series completeness; no hard-coded metrics on empty periods; kiosk key auth; concurrent *Call next* safety; ownership of ticket closure; live board scoping; end-of-day housekeeping; same-time comparison for periods that include today; importer quality checks, privacy guard, duplicate protection, rollback, and a 50,000-row stress import; tenant isolation (branches, KPIs, live queue, simulator, imports, suspended organisations) and demo refreshes that never touch real organisations; organisation settings (counter clashes, last-admin protection, temporary passwords, session sign-out on password change, protected demo records).
+The tests cover: authentication and forged tokens; role scoping (pharmacist / manager / admin boundaries); SQL-injection and invalid-date rejection; KPI reconciliation against raw SQL; staff = pharmacists, with counts summing to the branch; hourly and daily series completeness; no hard-coded metrics on empty periods; kiosk key auth; concurrent *Call next* safety; ownership of ticket closure; live board scoping; end-of-day housekeeping; same-time comparison for periods that include today; importer quality checks, privacy guard, duplicate protection, rollback, and a 50,000-row stress import; tenant isolation (branches, KPIs, live queue, simulator, imports, suspended organisations) and demo refreshes that never touch real organisations; organisation settings (counter clashes, last-admin protection, temporary passwords, session sign-out on password change, protected demo records); self-service sign-up (trial, validation, bot trap, isolation, onboarding progress).
 
 ## What v4 changed from v3
 
@@ -94,7 +95,7 @@ The tests cover: authentication and forged tokens; role scoping (pharmacist / ma
 | Front-end-only login, passwords in the JS bundle | Server-side JWT auth, bcrypt hashes, login rate limit |
 | Pharmacist view showed everyone's last 50 patients | Scoped server-side to the signed-in pharmacist |
 | Branch IDs mixed integer/text, branch names inconsistent | Typed foreign keys, one branches table |
-| No tests, 635 KB single bundle | 57 API tests, code-split bundle |
+| No tests, 635 KB single bundle | 63 API tests, code-split bundle |
 
 ## Project structure
 

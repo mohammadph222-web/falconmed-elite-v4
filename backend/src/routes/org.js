@@ -100,16 +100,31 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { rows } = await query(
-      `SELECT o.id, o.name, o.slug, o.plan, o.created_at,
+      `SELECT o.id, o.name, o.slug, o.plan, o.created_at, o.trial_ends_at,
               (SELECT COUNT(*)::int FROM falconmed_v4.branches b WHERE b.org_id = o.id AND b.is_active) AS branches,
-              (SELECT COUNT(*)::int FROM falconmed_v4.users u WHERE u.org_id = o.id AND u.is_active) AS team
+              (SELECT COUNT(*)::int FROM falconmed_v4.users u WHERE u.org_id = o.id AND u.is_active) AS team,
+              (SELECT COUNT(*)::int FROM falconmed_v4.users u WHERE u.org_id = o.id AND u.is_active AND u.role <> 'admin') AS staff,
+              EXISTS (SELECT 1 FROM falconmed_v4.tickets t
+                       WHERE t.branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = o.id)) AS has_tickets
          FROM falconmed_v4.organizations o WHERE o.id = $1`,
       [req.user.org_id],
     );
     const o = rows[0];
     res.json({
       success: true,
-      data: { id: o.id, name: o.name, slug: o.slug, plan: o.plan, createdAt: o.created_at, activeBranches: o.branches, activeTeam: o.team, demoProtected: o.plan === 'demo' },
+      data: {
+        id: o.id,
+        name: o.name,
+        slug: o.slug,
+        plan: o.plan,
+        createdAt: o.created_at,
+        trialEndsAt: o.trial_ends_at,
+        activeBranches: o.branches,
+        activeTeam: o.team,
+        demoProtected: o.plan === 'demo',
+        // Getting-started checklist for new organisations.
+        setup: { branch: o.branches > 0, team: o.staff > 0, data: o.has_tickets },
+      },
     });
   }),
 );

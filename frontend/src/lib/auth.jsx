@@ -44,10 +44,11 @@ export function AuthProvider({ children }) {
 
   const retry = useCallback(() => setStatus('checking'), []);
 
-  /** After a password change the server issues a new token (older sessions are signed out). */
+  /** After sign-up or a password change the server issues a new token (older sessions are signed out). */
   const replaceSession = useCallback((token, nextUser) => {
     tokenStore.set(token);
     setUser(nextUser);
+    setStatus('signed_in');
   }, []);
 
   /** Re-read the signed-in user (e.g. after renaming the organisation). */

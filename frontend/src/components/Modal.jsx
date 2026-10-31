@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Copy, X } from 'lucide-react';
 import { cn } from '../lib/format';
 
-/** Accessible dialog: Esc closes, focus moves inside, background click closes. */
+/**
+ * Accessible dialog: Esc closes, focus moves inside, background click closes.
+ * Rendered into <body> so an animated (transformed) parent cannot shift it.
+ */
 export function Modal({ title, subtitle, onClose, children, footer, wide }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -12,7 +16,7 @@ export function Modal({ title, subtitle, onClose, children, footer, wide }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" onClick={onClose} />
       <div
@@ -34,7 +38,8 @@ export function Modal({ title, subtitle, onClose, children, footer, wide }) {
         <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
         {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-ink-700/60 px-5 py-3.5">{footer}</footer>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

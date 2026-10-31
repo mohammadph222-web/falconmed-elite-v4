@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { query } from '../config/db.js';
-import { asyncHandler, badRequest, forbidden, parse, unauthorized } from '../lib/http.js';
+import { query, withTransaction } from '../config/db.js';
+import { env } from '../config/env.js';
+import { asyncHandler, badRequest, conflict, forbidden, parse, unauthorized } from '../lib/http.js';
 import { newPasswordSchema } from '../lib/passwords.js';
-import { publicUser, requireAuth, signToken } from '../middleware/auth.js';
+import { loadUser, publicUser, requireAuth, signToken } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -35,7 +37,7 @@ router.post(
     const { email, password } = parse(loginSchema, req.body);
     const { rows } = await query(
       `SELECT u.*, (u.is_active AND o.is_active) AS can_sign_in,
-              b.name AS branch_name, o.name AS org_name, o.plan AS org_plan
+              b.name AS branch_name, o.name AS org_name, o.plan AS org_plan, o.trial_ends_at
          FROM falconmed_v4.users u
          JOIN falconmed_v4.organizations o ON o.id = u.org_id
     LEFT JOIN falconmed_v4.branches b ON b.id = u.branch_id
@@ -47,6 +49,79 @@ router.post(
     if (!user || !ok || !user.can_sign_in) throw unauthorized('Incorrect email or password');
 
     res.json({ success: true, data: { token: signToken(user), user: publicUser(user) } });
+  }),
+);
+
+// ── self-service sign-up ─────────────────────────────────────────
+export const TRIAL_DAYS = 14;
+
+// New organisations per IP: generous for an office sharing one connection,
+// tight enough to stop scripted sign-ups.
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skipFailedRequests: true, // a typo should not use up an attempt
+  skip: () => env.NODE_ENV === 'test',
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many new organisations from this network. Try again in an hour.' } },
+});
+
+const signupSchema = z.object({
+  organisationName: z.string().trim().min(2, 'Enter your organisation’s name').max(80),
+  fullName: z.string().trim().min(2, 'Enter your name').max(80),
+  email: z.string().trim().toLowerCase().email('Enter a valid work email').max(120),
+  password: newPasswordSchema,
+  acceptTerms: z.literal(true, { error: 'Please accept the terms to continue' }),
+  // Hidden field: people never see it, so anything here came from a bot.
+  website: z.string().max(200).optional(),
+});
+
+/** "Al Noor Pharmacy (Dubai)" → "al-noor-pharmacy-dubai" */
+const slugify = (name) =>
+  name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'pharmacy';
+
+/**
+ * POST /api/auth/signup — create an organisation and its first admin,
+ * start a free trial and sign the admin in.
+ */
+router.post(
+  '/signup',
+  signupLimiter,
+  asyncHandler(async (req, res) => {
+    const body = parse(signupSchema, req.body);
+    if (body.website) throw badRequest('Sign-up could not be completed');
+
+    const hash = await bcrypt.hash(body.password, 10);
+    const user = await withTransaction(async (c) => {
+      const { rows: taken } = await c.query('SELECT 1 FROM falconmed_v4.users WHERE email = $1', [body.email]);
+      if (taken.length) throw conflict('An account with that email already exists. Sign in instead.');
+
+      // A unique, readable organisation ID: the name, plus a short suffix if it is taken.
+      const base = slugify(body.organisationName);
+      let slug = base;
+      for (let i = 0; ; i++) {
+        const { rows } = await c.query('SELECT 1 FROM falconmed_v4.organizations WHERE slug = $1', [slug]);
+        if (!rows.length) break;
+        slug = `${base}-${crypto.randomBytes(2).toString('hex')}`;
+        if (i > 5) throw conflict('Please try a slightly different organisation name');
+      }
+      const orgId = `org_${crypto.randomBytes(5).toString('hex')}`;
+      await c.query(
+        `INSERT INTO falconmed_v4.organizations (id, name, slug, plan, trial_ends_at, created_via)
+         VALUES ($1, $2, $3, 'trial', now() + make_interval(days => $4), 'signup')`,
+        [orgId, body.organisationName, slug, TRIAL_DAYS],
+      );
+      const userId = `u_${crypto.randomBytes(5).toString('hex')}`;
+      await c.query(
+        `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, password_hash)
+         VALUES ($1, $2, $3, $4, 'admin', $5)`,
+        [userId, orgId, body.email, body.fullName, hash],
+      );
+      return userId;
+    });
+    const full = await loadUser(user);
+    res.status(201).json({ success: true, data: { token: signToken(full), user: publicUser(full) } });
   }),
 );
 

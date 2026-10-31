@@ -231,7 +231,7 @@ export async function seed({ days = DAYS, reset = RESET, log = console.log, skip
     }
     for (const o of ORGS) {
       await client.query(
-        `INSERT INTO falconmed_v4.organizations (id, name, slug, plan) VALUES ($1, $2, $3, 'demo')
+        `INSERT INTO falconmed_v4.organizations (id, name, slug, plan, created_via) VALUES ($1, $2, $3, 'demo', 'seed')
          ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug, plan = 'demo', is_active = TRUE`,
         [o.id, o.name, o.slug],
       );

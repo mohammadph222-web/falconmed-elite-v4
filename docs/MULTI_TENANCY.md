@@ -43,7 +43,6 @@ Migration `003_organizations.sql` runs automatically on start-up. It creates the
 
 ## Not yet included (next stages)
 
-- Self-service sign-up (an organisation settings page arrived in v4.5).
 - One queue-machine key per organisation (today `QUEUE_API_KEY` is shared; tickets still land only in the branch named in the request).
 - Billing per plan.
 
@@ -60,3 +59,15 @@ Organisation admins open **Settings** to manage their own organisation (API: `/a
 | A pharmacist serving a patient cannot be moved or deactivated until the ticket is closed | No orphaned open tickets |
 | Every organisation keeps at least one active admin; admins cannot deactivate or demote themselves | No organisation can lock itself out |
 | In `demo` organisations the seeded branches and accounts are protected; visitor additions are editable and removed at the next demo refresh | The public demo keeps working for everyone |
+
+## Self-service sign-up (v4.6)
+
+`POST /api/auth/signup` `{ organisationName, fullName, email, password, acceptTerms }` creates an organisation (`plan = 'trial'`, `trial_ends_at = now + 14 days`, `created_via = 'signup'`) and its first admin, and signs the admin in.
+
+- **Validation:** platform-wide unique email, password rules, explicit consent not to upload patient identifiers.
+- **Abuse protection:** 5 new organisations per IP per hour (failed attempts do not count) and a hidden honeypot field.
+- **Readable organisation ID:** a slug from the name (`al-noor-pharmacy`), with a short suffix if taken.
+- **First visit:** a getting-started checklist on the network overview (first branch → team → data) driven by `GET /api/org` → `setup`.
+- **Trial banner:** trial organisations see the days left; demo organisations keep the demo notice; paid plans see neither.
+
+Not yet: e-mail verification and password-reset e-mails (need an e-mail provider — stage 7), and what happens when a trial ends (billing — stage 6). Today an ended trial shows a banner; nothing is locked or deleted.

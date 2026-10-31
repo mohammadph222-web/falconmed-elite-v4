@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, BarChart3, Building2, Lock, Mail, MonitorSmartphone, Network, ShieldCheck, Timer } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -156,6 +156,14 @@ export default function Login() {
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <p className="mt-5 text-center text-sm text-mist-400">
+            New to FalconMed?{' '}
+            <Link to="/signup" className="font-semibold text-brand-300 hover:text-brand-200">
+              Create your organisation
+            </Link>{' '}
+            · free for 14 days
+          </p>
 
           <div className="mt-10">
             <div className="label mb-3 flex items-center gap-2">

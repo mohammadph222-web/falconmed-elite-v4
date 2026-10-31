@@ -11,6 +11,7 @@ import KpiRow from '../components/KpiRow';
 import StaffTable from '../components/StaffTable';
 import { BranchChart, DailyChart, HourlyChart, ShareBars } from '../components/charts';
 import { EmptyState, Spinner } from '../components/States';
+import GettingStarted from '../components/GettingStarted';
 
 function BranchTable({ rows, selected, onSelect }) {
   if (!rows?.length) return <EmptyState />;
@@ -86,6 +87,7 @@ export default function AdminPage() {
 
   return (
     <>
+      <GettingStarted orgId={user.orgId} />
       <PageHeader
         eyebrow={`${user.orgName ?? 'Network'} · ${branchId ? 'branch drill-down' : 'all branches'}`}
         title={branchName ? `${branchName}` : 'Network overview'}

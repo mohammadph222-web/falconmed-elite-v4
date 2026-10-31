@@ -4,6 +4,7 @@ import { useAuth } from './lib/auth';
 import AppShell from './components/AppShell';
 import { FullScreenMessage, PageLoader } from './components/States';
 import Login from './pages/Login';
+import Signup from './pages/Signup';
 import { HOME } from './lib/routes';
 import { ForcedPasswordChange } from './pages/AccountPage';
 
@@ -40,6 +41,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );

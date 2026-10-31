@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Building2, Eye, Info, KeyRound, Lock, Pencil, Plus, Power, Search, UserPlus, Users } from 'lucide-react';
 import { api } from '../lib/api';
 import { useApi } from '../lib/useApi';
@@ -186,6 +187,12 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
             </div>
           )}
         </fieldset>
+        {form.role === 'pharmacist' && branch && taken.size >= branch.counters && !locked && (
+          <p className="rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-sm text-warn-300">
+            Every counter at {branch.name} already has a pharmacist. Choose another branch, or add counters to this one under
+            Branches.
+          </p>
+        )}
         <FormError error={error} />
       </form>
     </Modal>
@@ -422,7 +429,8 @@ function OrganisationTab({ org, reload }) {
 }
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState('team');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(['team', 'branches', 'org'].includes(params.get('tab')) ? params.get('tab') : 'team');
   const org = useApi('/org');
   const branches = useApi('/org/branches');
   const team = useApi('/org/users');

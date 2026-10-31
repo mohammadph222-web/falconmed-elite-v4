@@ -18,7 +18,7 @@ export async function loadUser(id) {
     `SELECT u.id, u.email, u.full_name, u.role, u.org_id, u.branch_id, u.counter_no,
             u.must_change_password, u.token_version, u.is_demo_fixture,
             (u.is_active AND o.is_active) AS is_active,
-            b.name AS branch_name, o.name AS org_name, o.plan AS org_plan
+            b.name AS branch_name, o.name AS org_name, o.plan AS org_plan, o.trial_ends_at
        FROM falconmed_v4.users u
        JOIN falconmed_v4.organizations o ON o.id = u.org_id
   LEFT JOIN falconmed_v4.branches b ON b.id = u.branch_id
@@ -36,6 +36,7 @@ export const publicUser = (u) => ({
   orgId: u.org_id,
   orgName: u.org_name,
   orgPlan: u.org_plan,
+  trialEndsAt: u.trial_ends_at ?? null,
   branchId: u.branch_id,
   branchName: u.branch_name ?? null,
   counterNo: u.counter_no,
