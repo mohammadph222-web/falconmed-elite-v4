@@ -1,3 +1,4 @@
+import { VERSION } from './lib/version.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -38,7 +39,7 @@ export function createApp() {
   app.use((req, res, next) => (req.path.startsWith('/api/imports') ? uploadJson : smallJson)(req, res, next));
 
   app.get('/', (req, res) => {
-    res.json({ name: 'FalconMed Elite API', version: '4.3.0', docs: '/api/health' });
+    res.json({ name: 'FalconMed Elite API', version: VERSION, docs: '/api/health' });
   });
 
   app.get('/api/health', async (req, res) => {

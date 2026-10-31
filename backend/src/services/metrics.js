@@ -194,7 +194,7 @@ export async function daily(scope, range) {
 export async function staff(scope, range) {
   const params = [range.from, range.to];
   const target = next(params, env.WAIT_TARGET_MIN);
-  const filters = [`u.role = 'pharmacist'`, `u.is_active`];
+  const filters = [`u.role = 'pharmacist'`, `u.is_active`, `u.org_id = ${next(params, scope.orgId)}`];
   if (scope.branchId) filters.push(`u.branch_id = ${next(params, scope.branchId)}`);
   if (scope.pharmacistId) filters.push(`u.id = ${next(params, scope.pharmacistId)}`);
 
@@ -242,7 +242,7 @@ export async function staff(scope, range) {
 export async function branches(scope, range) {
   const params = [range.from, range.to];
   const target = next(params, env.WAIT_TARGET_MIN);
-  const filters = ['b.is_active'];
+  const filters = ['b.is_active', `b.org_id = ${next(params, scope.orgId)}`];
   if (scope.branchId) filters.push(`b.id = ${next(params, scope.branchId)}`);
 
   const { rows } = await query(

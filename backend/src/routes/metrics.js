@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, forbidden } from '../lib/http.js';
-import { parseRange, resolveScope } from '../lib/scope.js';
+import { assertInOrg, parseRange, resolveScope } from '../lib/scope.js';
 import { requireAuth } from '../middleware/auth.js';
 import * as metrics from '../services/metrics.js';
 
@@ -15,6 +15,7 @@ router.use(requireAuth);
 const handler = (fn) =>
   asyncHandler(async (req, res) => {
     const scope = resolveScope(req.user, req.query);
+    await assertInOrg(req.user, scope);
     const range = parseRange(req.query);
     const data = await fn(scope, range, req);
     res.json({ success: true, scope, data });

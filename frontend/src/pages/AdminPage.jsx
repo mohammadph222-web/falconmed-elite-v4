@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Building2, ChevronRight } from 'lucide-react';
 import { useApi } from '../lib/useApi';
+import { useAuth } from '../lib/auth';
 import { compareLabel, presetRange } from '../lib/dates';
 import { cn, fmt1, fmtMinutes, fmtPct, fmtRange } from '../lib/format';
 import { PageHeader, Panel, Segmented, StatusPill } from '../components/ui';
@@ -59,6 +60,7 @@ function BranchTable({ rows, selected, onSelect }) {
 }
 
 export default function AdminPage() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const linked = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('from') ?? '') && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('to') ?? '');
   const [range, setRange] = useState(
@@ -85,7 +87,7 @@ export default function AdminPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Network · all branches"
+        eyebrow={`${user.orgName ?? 'Network'} · ${branchId ? 'branch drill-down' : 'all branches'}`}
         title={branchName ? `${branchName}` : 'Network overview'}
         subtitle={
           branchName ? (

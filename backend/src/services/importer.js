@@ -285,8 +285,9 @@ export async function analyse(csvText, { user, defaultBranchId, fileName = 'uplo
 
   // 3. Reference data.
   const [{ rows: branches }, { rows: staff }] = await Promise.all([
-    query('SELECT id, name FROM falconmed_v4.branches WHERE is_active'),
-    query(`SELECT id, email, full_name, branch_id FROM falconmed_v4.users WHERE role = 'pharmacist' AND is_active`),
+    // Only the user's own organisation: a file can never reach another organisation's branches.
+    query('SELECT id, name FROM falconmed_v4.branches WHERE is_active AND org_id = $1', [user.org_id]),
+    query(`SELECT id, email, full_name, branch_id FROM falconmed_v4.users WHERE role = 'pharmacist' AND is_active AND org_id = $1`, [user.org_id]),
   ]);
   const branchLookup = new Map();
   for (const b of branches) {
@@ -527,13 +528,14 @@ export async function commitImport(csvText, { user, defaultBranchId, fileName })
   return withTransaction(async (c) => {
     const { rows } = await c.query(
       `INSERT INTO falconmed_v4.import_batches
-         (created_by, file_name, branch_ids, rows_total, rows_imported, rows_rejected, quality_score, date_from, date_to, report)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (created_by, file_name, branch_ids, rows_total, rows_imported, rows_rejected, quality_score, date_from, date_to, report, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id, created_at`,
       [
         user.id, String(fileName).slice(0, 200), report.summary.branches.map((b) => b.id), report.summary.total,
         report.summary.valid, report.summary.rejected, report.summary.score, report.summary.dateFrom,
         report.summary.dateTo, JSON.stringify({ summary: report.summary, issues: report.issues, file: report.file }),
+        user.org_id,
       ],
     );
     const batchId = Number(rows[0].id);
@@ -556,11 +558,11 @@ export async function commitImport(csvText, { user, defaultBranchId, fileName })
 
 // ── history / rollback ───────────────────────────────────────────
 export async function listBatches(user) {
-  const params = [];
-  let filter = '';
+  const params = [user.org_id];
+  let filter = 'WHERE b.org_id = $1';
   if (user.role !== 'admin') {
     params.push(user.branch_id);
-    filter = 'WHERE $1 = ALL(b.branch_ids)';
+    filter += ' AND $2 = ALL(b.branch_ids)';
   }
   const { rows } = await query(
     `SELECT b.id, b.file_name, b.branch_ids, b.rows_total, b.rows_imported, b.rows_rejected, b.quality_score,
@@ -587,11 +589,11 @@ export async function listBatches(user) {
 
 /** Remove an import and all of its tickets (ON DELETE CASCADE). */
 export async function deleteBatch(user, id) {
-  const params = [id];
-  let filter = '';
+  const params = [id, user.org_id];
+  let filter = 'AND org_id = $2';
   if (user.role !== 'admin') {
     params.push(user.branch_id);
-    filter = 'AND $2 = ALL(branch_ids)';
+    filter += ' AND $3 = ALL(branch_ids)';
   }
   const { rows } = await query(`DELETE FROM falconmed_v4.import_batches WHERE id = $1 ${filter} RETURNING id, rows_imported`, params);
   return rows[0] ? { id: Number(rows[0].id), rowsRemoved: rows[0].rows_imported } : null;

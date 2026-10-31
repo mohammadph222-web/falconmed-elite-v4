@@ -13,6 +13,9 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DB_SSL: z.enum(['auto', 'on', 'off']).default('auto'),
+  // Demo sites only: rebuild the demo organisations on start-up when their
+  // data is out of date, so the dashboards always run up to today.
+  DEMO_AUTO_REFRESH: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
 });
 
 const parsed = schema.safeParse(process.env);

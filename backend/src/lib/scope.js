@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { env } from '../config/env.js';
+import { query } from '../config/db.js';
 import { badRequest, forbidden, parse } from './http.js';
 
 const DAY_MS = 86_400_000;
@@ -47,33 +48,53 @@ const scopeQuery = z.object({
  * Resolve what the caller may see. The server, never the browser, decides:
  *   pharmacist → own tickets only
  *   manager    → own branch (optionally one pharmacist in it)
- *   admin      → whole network (optionally one branch / pharmacist)
+ *   admin      → own organisation's network (optionally one branch / pharmacist)
+ * Every scope carries orgId, so no query can reach another organisation.
  */
 export function resolveScope(user, q) {
   const { branchId, pharmacistId } = parse(scopeQuery, q);
+  const orgId = user.org_id;
+  if (!orgId) throw forbidden();
   if (user.role === 'pharmacist') {
     if (pharmacistId && pharmacistId !== user.id) throw forbidden();
     if (branchId && branchId !== user.branch_id) throw forbidden();
-    return { level: 'pharmacist', branchId: user.branch_id, pharmacistId: user.id };
+    return { level: 'pharmacist', orgId, branchId: user.branch_id, pharmacistId: user.id };
   }
   if (user.role === 'manager') {
     if (branchId && branchId !== user.branch_id) throw forbidden('Managers can only view their own branch');
-    return { level: pharmacistId ? 'pharmacist' : 'branch', branchId: user.branch_id, pharmacistId: pharmacistId ?? null };
+    return { level: pharmacistId ? 'pharmacist' : 'branch', orgId, branchId: user.branch_id, pharmacistId: pharmacistId ?? null };
   }
   return {
     level: pharmacistId ? 'pharmacist' : branchId ? 'branch' : 'network',
+    orgId,
     branchId: branchId ?? null,
     pharmacistId: pharmacistId ?? null,
   };
 }
+
+/** Throw 403 unless the branch (and pharmacist, if given) belong to the user's organisation. */
+export async function assertInOrg(user, { branchId, pharmacistId } = {}) {
+  if (branchId) {
+    const { rows } = await query('SELECT 1 FROM falconmed_v4.branches WHERE id = $1 AND org_id = $2', [branchId, user.org_id]);
+    if (!rows.length) throw forbidden('That branch is not part of your organisation');
+  }
+  if (pharmacistId) {
+    const { rows } = await query('SELECT 1 FROM falconmed_v4.users WHERE id = $1 AND org_id = $2', [pharmacistId, user.org_id]);
+    if (!rows.length) throw forbidden('That pharmacist is not part of your organisation');
+  }
+}
+
+/** SQL fragment: the branch column belongs to the organisation in placeholder $n. */
+export const inOrg = (column, placeholder) =>
+  `${column} IN (SELECT id FROM falconmed_v4.branches WHERE org_id = ${placeholder})`;
 
 /**
  * Build a parameterised WHERE clause for falconmed_v4.ticket_metrics (alias t).
  * Returns { sql, params } — values are never interpolated into SQL text.
  */
 export function where(scope, from, to, alias = 't') {
-  const params = [from, to];
-  const parts = [`${alias}.service_date BETWEEN $1::date AND $2::date`];
+  const params = [from, to, scope.orgId];
+  const parts = [`${alias}.service_date BETWEEN $1::date AND $2::date`, inOrg(`${alias}.branch_id`, '$3')];
   if (scope.branchId) {
     params.push(scope.branchId);
     parts.push(`${alias}.branch_id = $${params.length}`);

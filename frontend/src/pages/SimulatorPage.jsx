@@ -27,7 +27,14 @@ const randomRef = () => `MRN-${Math.floor(100000 + Math.random() * 900000)}`;
 export default function SimulatorPage() {
   const { user } = useAuth();
   const isAdmin = user.role === 'admin';
-  const [branchId, setBranchId] = useState(isAdmin ? 'br_ad01' : user.branchId);
+  const [branchId, setBranchId] = useState(isAdmin ? '' : user.branchId);
+  const branches = useApi('/branches', {}, { enabled: isAdmin });
+  // Admins start on their organisation's first real (non-sandbox) branch.
+  useEffect(() => {
+    const list = branches.data ?? [];
+    if (!isAdmin || !list.length || list.some((b) => b.id === branchId)) return;
+    setBranchId((list.find((b) => b.city !== 'Sandbox') ?? list[0]).id);
+  }, [isAdmin, branches.data, branchId]);
   const [service, setService] = useState('mixed');
   const [unidentifiedPct, setUnidentifiedPct] = useState(3);
   const [rate, setRate] = useState(6); // patients per minute in auto mode
@@ -35,7 +42,7 @@ export default function SimulatorPage() {
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const live = useApi('/queue/live', { branchId }, { interval: 4000 });
+  const live = useApi('/queue/live', { branchId }, { interval: 4000, enabled: Boolean(branchId) });
 
   const register = useCallback(
     async (n = 1) => {

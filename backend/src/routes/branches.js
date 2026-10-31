@@ -10,11 +10,11 @@ router.use(requireAuth);
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const params = [];
-    let filter = 'b.is_active';
+    const params = [req.user.org_id];
+    let filter = 'b.is_active AND b.org_id = $1';
     if (req.user.role !== 'admin') {
       params.push(req.user.branch_id);
-      filter += ' AND b.id = $1';
+      filter += ' AND b.id = $2';
     }
     const { rows } = await query(
       `SELECT b.id, b.name, b.city, b.counters,

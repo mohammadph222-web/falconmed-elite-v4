@@ -6,9 +6,21 @@ import { useAuth } from '../lib/auth';
 import { ROLE_LABEL } from '../lib/format';
 import { Spinner } from '../components/States';
 import { HOME } from '../lib/routes';
+import { APP_VERSION } from '../lib/version';
 
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || 'Demo@2026';
 const ROLE_ICON = { pharmacist: MonitorSmartphone, manager: Building2, admin: Network };
+
+/** Keep the server's order, grouped by organisation. */
+function groupByOrg(accounts) {
+  const groups = new Map();
+  for (const a of accounts) {
+    const key = a.orgName || 'Demo';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  }
+  return [...groups.entries()];
+}
 
 export default function Login() {
   const { login } = useAuth();
@@ -92,7 +104,7 @@ export default function Login() {
           </ul>
         </div>
 
-        <p className="relative font-mono text-[11px] text-mist-500">v4.0 · Demo environment with simulated data</p>
+        <p className="relative font-mono text-[11px] text-mist-500">v{APP_VERSION} · Demo environment with simulated data</p>
       </div>
 
       {/* form */}
@@ -150,30 +162,40 @@ export default function Login() {
               <span className="h-px flex-1 bg-ink-700" /> Demo access <span className="h-px flex-1 bg-ink-700" />
             </div>
             {waking && <p className="mb-3 text-center text-xs text-mist-400">Waking the server — this can take up to a minute on the free tier…</p>}
-            <div className="space-y-2">
-              {demo.map((d) => {
-                const Icon = ROLE_ICON[d.role];
-                return (
-                  <button
-                    key={d.email}
-                    disabled={busy}
-                    onClick={() => submit(null, { email: d.email, password: DEMO_PASSWORD })}
-                    className="group flex w-full items-center gap-3 rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-3 text-left transition hover:border-brand/50 hover:bg-ink-800 disabled:opacity-50"
-                  >
-                    <span className="rounded-lg bg-brand/15 p-2 text-brand-300">
-                      <Icon className="h-4 w-4" aria-hidden />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-white">{ROLE_LABEL[d.role]}</span>
-                      <span className="block truncate text-xs text-mist-400">
-                        {d.name}
-                        {d.branchName ? ` · ${d.branchName}` : ''}
-                      </span>
-                    </span>
-                    <ArrowRight className="h-4 w-4 text-mist-500 transition group-hover:translate-x-0.5 group-hover:text-brand-300" />
-                  </button>
-                );
-              })}
+            <div className="space-y-5">
+              {groupByOrg(demo).map(([org, accounts], gi) => (
+                <div key={org}>
+                  <div className="mb-2 flex items-baseline justify-between gap-2 px-0.5">
+                    <span className="truncate text-xs font-semibold text-mist-200">{org}</span>
+                    {gi > 0 && <span className="shrink-0 text-[11px] text-mist-500">separate organisation</span>}
+                  </div>
+                  <div className="space-y-2">
+                    {accounts.map((d) => {
+                      const Icon = ROLE_ICON[d.role];
+                      return (
+                        <button
+                          key={d.email}
+                          disabled={busy}
+                          onClick={() => submit(null, { email: d.email, password: DEMO_PASSWORD })}
+                          className="group flex w-full items-center gap-3 rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-3 text-left transition hover:border-brand/50 hover:bg-ink-800 disabled:opacity-50"
+                        >
+                          <span className="rounded-lg bg-brand/15 p-2 text-brand-300">
+                            <Icon className="h-4 w-4" aria-hidden />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-white">{ROLE_LABEL[d.role]}</span>
+                            <span className="block truncate text-xs text-mist-400">
+                              {d.name}
+                              {d.branchName ? ` · ${d.branchName}` : ''}
+                            </span>
+                          </span>
+                          <ArrowRight className="h-4 w-4 text-mist-500 transition group-hover:translate-x-0.5 group-hover:text-brand-300" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

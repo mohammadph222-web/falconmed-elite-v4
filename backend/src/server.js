@@ -1,8 +1,10 @@
+import { VERSION } from './lib/version.js';
 import { env } from './config/env.js';
 import { pool } from './config/db.js';
 import { migrate } from './db/migrate.js';
 import { createApp } from './app.js';
 import { closeStaleTickets } from './services/queue.js';
+import { refreshDemoIfStale } from './db/seed.js';
 
 async function start() {
   // Applying pending migrations on boot keeps Render deploys one-step.
@@ -19,7 +21,11 @@ async function start() {
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {
-    console.log(`🚀 FalconMed Elite API v4.3 listening on :${env.PORT} (${env.NODE_ENV})`);
+    console.log(`🚀 FalconMed Elite API v${VERSION} listening on :${env.PORT} (${env.NODE_ENV})`);
+    // After listening, so a slow rebuild never delays the deploy health check.
+    if (env.DEMO_AUTO_REFRESH) {
+      refreshDemoIfStale().catch((err) => console.error('demo refresh failed:', err.message));
+    }
   });
 
   const shutdown = (signal) => {

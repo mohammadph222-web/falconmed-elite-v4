@@ -5,7 +5,7 @@ import { query } from '../config/db.js';
 import { asyncHandler, forbidden, unauthorized } from '../lib/http.js';
 
 export function signToken(user) {
-  return jwt.sign({ role: user.role, branchId: user.branch_id }, env.JWT_SECRET, {
+  return jwt.sign({ role: user.role, orgId: user.org_id, branchId: user.branch_id }, env.JWT_SECRET, {
     subject: user.id,
     expiresIn: env.JWT_EXPIRES_IN,
   });
@@ -13,9 +13,11 @@ export function signToken(user) {
 
 export async function loadUser(id) {
   const { rows } = await query(
-    `SELECT u.id, u.email, u.full_name, u.role, u.branch_id, u.counter_no, u.is_active,
-            b.name AS branch_name
+    `SELECT u.id, u.email, u.full_name, u.role, u.org_id, u.branch_id, u.counter_no,
+            (u.is_active AND o.is_active) AS is_active,
+            b.name AS branch_name, o.name AS org_name, o.plan AS org_plan
        FROM falconmed_v4.users u
+       JOIN falconmed_v4.organizations o ON o.id = u.org_id
   LEFT JOIN falconmed_v4.branches b ON b.id = u.branch_id
       WHERE u.id = $1`,
     [id],
@@ -28,6 +30,9 @@ export const publicUser = (u) => ({
   email: u.email,
   name: u.full_name,
   role: u.role,
+  orgId: u.org_id,
+  orgName: u.org_name,
+  orgPlan: u.org_plan,
   branchId: u.branch_id,
   branchName: u.branch_name ?? null,
   counterNo: u.counter_no,

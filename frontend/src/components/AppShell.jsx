@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { Activity, Building2, FileUp, FlaskConical, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { cn, ROLE_LABEL } from '../lib/format';
+import { APP_VERSION } from '../lib/version';
 
 const NAV = {
   pharmacist: [{ to: '/counter', label: 'My counter', icon: MonitorSmartphone }],
@@ -30,7 +31,7 @@ function Brand() {
       </div>
       <div className="leading-tight">
         <div className="font-display text-[15px] font-semibold text-white">FalconMed Elite</div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-400">Queue analytics · v4.3</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-400">Queue analytics · v{APP_VERSION}</div>
       </div>
     </div>
   );
@@ -43,6 +44,12 @@ function Sidebar({ onNavigate }) {
   return (
     <div className="flex h-full flex-col gap-6 p-5">
       <Brand />
+      {user.orgName && (
+        <div className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5" title="Your organisation — you only ever see its data">
+          <div className="label">Organisation</div>
+          <div className="mt-0.5 truncate text-sm font-semibold text-white">{user.orgName}</div>
+        </div>
+      )}
       <nav className="flex flex-col gap-1" aria-label="Main">
         <div className="label mb-1 px-3">Workspace</div>
         {NAV[user.role].map(({ to, label, icon: Icon }) => (

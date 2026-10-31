@@ -1,7 +1,7 @@
 import { query, withTransaction } from '../config/db.js';
 import { env } from '../config/env.js';
 import { conflict, notFound } from '../lib/http.js';
-import { todayISO } from '../lib/scope.js';
+import { inOrg, todayISO } from '../lib/scope.js';
 
 const round = (v, d = 1) => (v === null || v === undefined ? null : Number(Number(v).toFixed(d)));
 
@@ -139,10 +139,16 @@ export async function completeTicket(user, ticketId, outcome) {
 }
 
 /** Live picture of one branch (or the whole network) right now. */
-export async function liveBoard(branchId) {
+export async function liveBoard({ orgId, branchId = null }) {
   await closeStaleTickets();
-  const params = [];
-  const branchFilter = branchId ? (params.push(branchId), `AND t.branch_id = $${params.length}`) : '';
+  // $1 is always the organisation; $2 the branch when one is chosen.
+  const params = [orgId];
+  let branchFilter = `AND ${inOrg('t.branch_id', '$1')}`;
+  if (branchId) {
+    params.push(branchId);
+    branchFilter += ' AND t.branch_id = $2';
+  }
+  const scoped = params.slice();
   params.push(env.WAIT_TARGET_MIN);
   const targetIdx = `$${params.length}`;
 
@@ -154,7 +160,7 @@ export async function liveBoard(branchId) {
         WHERE t.status IN ('waiting', 'in_service') ${branchFilter}
      ORDER BY t.arrived_at
         LIMIT 500`,
-      params.slice(0, branchId ? 1 : 0),
+      scoped,
     ),
     query(
       `SELECT COUNT(*) FILTER (WHERE t.status = 'served')                                AS served,
@@ -168,8 +174,8 @@ export async function liveBoard(branchId) {
     ),
     query(
       `SELECT COALESCE(SUM(counters), 0) AS counters FROM falconmed_v4.branches
-        WHERE is_active ${branchId ? 'AND id = $1' : ''}`,
-      branchId ? [branchId] : [],
+        WHERE is_active AND org_id = $1 ${branchId ? 'AND id = $2' : ''}`,
+      scoped,
     ),
   ]);
 

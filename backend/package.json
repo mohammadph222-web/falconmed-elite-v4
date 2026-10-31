@@ -1,6 +1,6 @@
 {
   "name": "falconmed-elite-backend",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "FalconMed Elite v4 — pharmacy queue analytics API (Express + PostgreSQL)",
   "type": "module",
   "main": "src/server.js",
@@ -12,6 +12,7 @@
     "dev": "node --watch src/server.js",
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seed.js",
+    "seed:refresh": "node src/db/seed.js --reset",
     "setup": "node src/db/migrate.js && node src/db/seed.js",
     "test": "node --test --test-concurrency=1 test/*.test.js"
   },

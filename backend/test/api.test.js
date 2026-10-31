@@ -106,7 +106,7 @@ test('summary KPIs reconcile with raw ticket data', async () => {
             COUNT(*) FILTER (WHERE status='no_show')::int AS no_show,
             AVG(EXTRACT(EPOCH FROM (called_at - arrived_at))/60) AS avg_wait,
             AVG(EXTRACT(EPOCH FROM (finished_at - called_at))/60) FILTER (WHERE status='served') AS avg_service
-       FROM falconmed_v4.tickets WHERE service_date BETWEEN $1 AND $2`,
+       FROM falconmed_v4.tickets WHERE service_date BETWEEN $1 AND $2 AND branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = 'org_demo')`,
     [monthAgo, today],
   );
   const r = rows[0];
@@ -248,8 +248,8 @@ test('a period ending today is compared with the previous period up to the same 
   assert.equal(d.comparison.mode, 'same_time');
   const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS upto, (SELECT COUNT(*)::int FROM falconmed_v4.tickets WHERE service_date = $1) AS full_day
-       FROM falconmed_v4.tickets WHERE service_date = $1 AND arrived_at <= $2::timestamptz`,
+    `SELECT COUNT(*)::int AS upto, (SELECT COUNT(*)::int FROM falconmed_v4.tickets WHERE service_date = $1 AND branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = 'org_demo')) AS full_day
+       FROM falconmed_v4.tickets WHERE service_date = $1 AND arrived_at <= $2::timestamptz AND branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = 'org_demo')`,
     [yesterday, d.comparison.previousCutoff],
   );
   assert.equal(d.previous.totalTickets, rows[0].upto, 'previous = yesterday until the same time');
@@ -262,6 +262,6 @@ test('a completed period is compared with the full previous period', async () =>
   assert.equal(res.body.data.comparison.mode, 'full_period');
   assert.equal(res.body.data.comparison.previousCutoff, null);
   const dayBefore = new Date(Date.parse(`${today}T00:00:00Z`) - 2 * 86_400_000).toISOString().slice(0, 10);
-  const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM falconmed_v4.tickets WHERE service_date = $1`, [dayBefore]);
+  const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM falconmed_v4.tickets WHERE service_date = $1 AND branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = 'org_demo')`, [dayBefore]);
   assert.equal(res.body.data.previous.totalTickets, rows[0].n);
 });

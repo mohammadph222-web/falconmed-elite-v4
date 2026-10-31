@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertOctagon, AlertTriangle, ArrowRight, CheckCircle2, Clock, Download, FileSpreadsheet, FlaskConical,
@@ -283,7 +283,13 @@ export default function ImportPage() {
   const { user } = useAuth();
   const isAdmin = user.role === 'admin';
   const branches = useApi('/branches');
-  const [branchId, setBranchId] = useState(isAdmin ? 'br_lab' : user.branchId);
+  const [branchId, setBranchId] = useState(isAdmin ? '' : user.branchId);
+  // Admins start on their organisation's sandbox branch (or the first branch).
+  useEffect(() => {
+    const list = branches.data ?? [];
+    if (!isAdmin || !list.length || list.some((b) => b.id === branchId)) return;
+    setBranchId((list.find((b) => b.city === 'Sandbox') ?? list[0]).id);
+  }, [isAdmin, branches.data, branchId]);
   const [file, setFile] = useState(null); // { name, text }
   const [report, setReport] = useState(null);
   const [result, setResult] = useState(null);

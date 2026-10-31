@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler, forbidden, parse } from '../lib/http.js';
+import { assertInOrg } from '../lib/scope.js';
 import { requireAuth, requireQueueKeyOrStaff, requireRole } from '../middleware/auth.js';
 import * as queue from '../services/queue.js';
 
@@ -28,6 +29,7 @@ router.post(
     if (req.user?.role === 'manager' && body.branchId !== req.user.branch_id) {
       throw forbidden('Managers can only register tickets for their own branch');
     }
+    if (req.user) await assertInOrg(req.user, { branchId: body.branchId });
     if (!req.viaQueueKey) body.source = 'simulator';
     const ticket = await queue.createTicket(body);
     res.status(201).json({ success: true, data: ticket });
@@ -46,7 +48,8 @@ router.get(
       if (branchId && branchId !== req.user.branch_id) throw forbidden();
       target = req.user.branch_id;
     }
-    res.json({ success: true, data: await queue.liveBoard(target) });
+    await assertInOrg(req.user, { branchId: target });
+    res.json({ success: true, data: await queue.liveBoard({ orgId: req.user.org_id, branchId: target }) });
   }),
 );
 

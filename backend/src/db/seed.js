@@ -1,5 +1,10 @@
 /**
- * Demo data generator — `npm run seed` (add `-- --reset` to rebuild).
+ * Demo data generator — `npm run seed` (or `npm run seed:refresh` to rebuild
+ * it so the data runs up to today).
+ *
+ * Creates two fictional demo organisations on the same platform, to show
+ * that each organisation only ever sees its own data. A rebuild only touches
+ * organisations whose plan is 'demo' — real customers are never affected.
  *
  * Produces a realistic, reproducible pharmacy network by *simulating* each
  * day as a multi-counter queue (arrivals → wait for a free counter →
@@ -46,22 +51,47 @@ const gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI 
 /** Log-normal draw with the given mean (minutes) and spread. */
 const lognormal = (mean, sigma = 0.45) => Math.exp(Math.log(mean) - (sigma * sigma) / 2 + sigma * gauss());
 
-// ── network definition (fictional) ───────────────────────────────
-const BRANCHES = [
-  { id: 'br_ad01', name: 'Al Reem Island', city: 'Abu Dhabi', counters: 5, volume: 620 },
-  { id: 'br_ad02', name: 'Khalifa City', city: 'Abu Dhabi', counters: 4, volume: 480 },
-  { id: 'br_aa01', name: 'Al Ain Central', city: 'Al Ain', counters: 5, volume: 580 },
-  { id: 'br_aa02', name: 'Al Jimi', city: 'Al Ain', counters: 3, volume: 420 },
-  { id: 'br_dx01', name: 'Dubai Marina', city: 'Dubai', counters: 4, volume: 470 },
+// ── demo organisations (fictional) ───────────────────────────────
+const ORGS = [
+  {
+    id: 'org_demo',
+    name: 'FalconMed Demo Network',
+    slug: 'demo',
+    domain: 'demo.falconmed.app',
+    primaryLogins: true, // pharmacist@ / manager@ / admin@demo.falconmed.app
+    admin: { id: 'u_admin', name: 'Network Administrator' },
+    lab: 'br_lab',
+    branches: [
+      { id: 'br_ad01', name: 'Al Reem Island', city: 'Abu Dhabi', counters: 5, volume: 620 },
+      { id: 'br_ad02', name: 'Khalifa City', city: 'Abu Dhabi', counters: 4, volume: 480 },
+      { id: 'br_aa01', name: 'Al Ain Central', city: 'Al Ain', counters: 5, volume: 580 },
+      { id: 'br_aa02', name: 'Al Jimi', city: 'Al Ain', counters: 3, volume: 420 },
+      { id: 'br_dx01', name: 'Dubai Marina', city: 'Dubai', counters: 4, volume: 470 },
+    ],
+    pharmacists: [
+      'Lama Al-Rumaithi', 'Hana Ibrahim', 'Omar Haddad', 'Priya Nair', 'Yousef Al-Hashimi',
+      'Mariam Saeed', 'Rahul Menon', 'Aisha Al-Ketbi', 'Khaled Mansour', 'Sara Al-Dhaheri',
+      'Ahmed Fathy', 'Noura Al-Mazrouei', 'Joseph Mathew', 'Reem Al-Shamsi', 'Tariq Aziz',
+      'Fatima Al-Nuaimi', 'Ali Raza', 'Dana Khalil', 'Hassan Qasim', 'Mona Al-Suwaidi', 'Karim Nasser',
+    ],
+    managers: ['Fatima Al-Ameri', 'Saeed Al-Kaabi', 'Huda Al-Marri', 'Imran Sheikh', 'Layla Haddad'],
+  },
+  {
+    id: 'org_oasis',
+    name: 'Oasis Care Pharmacies',
+    slug: 'oasis',
+    domain: 'oasis.demo.falconmed.app',
+    primaryLogins: false,
+    admin: { id: 'u_admin_oasis', name: 'Group Operations Lead' },
+    lab: 'br_os_lab',
+    branches: [
+      { id: 'br_os01', name: 'Al Majaz', city: 'Sharjah', counters: 3, volume: 240 },
+      { id: 'br_os02', name: 'Al Nahda', city: 'Sharjah', counters: 3, volume: 200 },
+    ],
+    pharmacists: ['Zainab Al-Hammadi', 'Vikram Rao', 'Salma Youssef', 'Faisal Al-Owais', 'Nadia Karam', 'George Thomas'],
+    managers: ['Rania Al-Zarooni', 'Bilal Chaudhry'],
+  },
 ];
-
-const PHARMACIST_NAMES = [
-  'Lama Al-Rumaithi', 'Hana Ibrahim', 'Omar Haddad', 'Priya Nair', 'Yousef Al-Hashimi',
-  'Mariam Saeed', 'Rahul Menon', 'Aisha Al-Ketbi', 'Khaled Mansour', 'Sara Al-Dhaheri',
-  'Ahmed Fathy', 'Noura Al-Mazrouei', 'Joseph Mathew', 'Reem Al-Shamsi', 'Tariq Aziz',
-  'Fatima Al-Nuaimi', 'Ali Raza', 'Dana Khalil', 'Hassan Qasim', 'Mona Al-Suwaidi', 'Karim Nasser',
-];
-const MANAGER_NAMES = ['Fatima Al-Ameri', 'Saeed Al-Kaabi', 'Huda Al-Marri', 'Imran Sheikh', 'Layla Haddad'];
 
 // Arrivals per hour (relative), pharmacy open 08:00–23:00, peak 15:00–16:00.
 const HOUR_WEIGHT = {
@@ -174,82 +204,139 @@ async function insertTickets(client, rows) {
   }
 }
 
-export async function seed({ days = DAYS, reset = RESET, log = console.log } = {}) {
+export async function seed({ days = DAYS, reset = RESET, log = console.log, skipIfBusy = false } = {}) {
   await migrate({ log: () => {} });
   const client = await pool.connect();
   try {
-    const { rows: existing } = await client.query('SELECT COUNT(*)::int AS n FROM falconmed_v4.users');
+    const { rows: existing } = await client.query(
+      `SELECT COUNT(*)::int AS n FROM falconmed_v4.users u
+         JOIN falconmed_v4.organizations o ON o.id = u.org_id WHERE o.plan = 'demo'`,
+    );
     if (existing[0].n > 0 && !reset) {
-      log('ℹ️  Demo data already present. Run `npm run seed -- --reset` to rebuild it.');
+      log('ℹ️  Demo data already present. Run `npm run seed:refresh` to rebuild it up to today.');
       return;
     }
 
     await client.query('BEGIN');
-    await client.query('TRUNCATE falconmed_v4.import_batches, falconmed_v4.tickets, falconmed_v4.users, falconmed_v4.branches RESTART IDENTITY CASCADE');
-
-    const hash = await bcrypt.hash(env.DEMO_PASSWORD, 10);
-    for (const b of BRANCHES) {
-      await client.query('INSERT INTO falconmed_v4.branches (id, name, city, counters) VALUES ($1, $2, $3, $4)', [
-        b.id, b.name, b.city, b.counters,
-      ]);
-    }
-
-    const staffByBranch = {};
-    let p = 0;
-    for (const [bi, b] of BRANCHES.entries()) {
-      staffByBranch[b.id] = [];
-      for (let c = 1; c <= b.counters; c++) {
-        const primary = bi === 0 && c === 1;
-        const user = {
-          id: `u_ph_${b.id.slice(3)}_${c}`,
-          email: primary ? 'pharmacist@demo.falconmed.app' : `ph.${b.id.slice(3)}.${c}@demo.falconmed.app`,
-          name: PHARMACIST_NAMES[p++ % PHARMACIST_NAMES.length],
-          counter_no: c,
-        };
-        await client.query(
-          `INSERT INTO falconmed_v4.users (id, email, full_name, role, branch_id, counter_no, password_hash)
-           VALUES ($1, $2, $3, 'pharmacist', $4, $5, $6)`,
-          [user.id, user.email, user.name, b.id, c, hash],
-        );
-        staffByBranch[b.id].push(user);
+    // One rebuild at a time (two server instances may start together during a deploy).
+    if (skipIfBusy) {
+      const { rows: lock } = await client.query(`SELECT pg_try_advisory_xact_lock(hashtext('falconmed_demo_seed')) AS ok`);
+      if (!lock[0].ok) {
+        await client.query('ROLLBACK');
+        log('ℹ️  Another instance is already rebuilding the demo data.');
+        return;
       }
+    } else {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('falconmed_demo_seed'))`);
+    }
+    for (const o of ORGS) {
       await client.query(
-        `INSERT INTO falconmed_v4.users (id, email, full_name, role, branch_id, password_hash)
-         VALUES ($1, $2, $3, 'manager', $4, $5)`,
-        [`u_mg_${b.id.slice(3)}`, bi === 0 ? 'manager@demo.falconmed.app' : `manager.${b.id.slice(3)}@demo.falconmed.app`,
-          MANAGER_NAMES[bi], b.id, hash],
+        `INSERT INTO falconmed_v4.organizations (id, name, slug, plan) VALUES ($1, $2, $3, 'demo')
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug, plan = 'demo', is_active = TRUE`,
+        [o.id, o.name, o.slug],
       );
     }
-    await client.query(
-      `INSERT INTO falconmed_v4.users (id, email, full_name, role, password_hash)
-       VALUES ('u_admin', 'admin@demo.falconmed.app', 'Network Administrator', 'admin', $1)`,
-      [hash],
-    );
-    // Empty sandbox branch for trying the CSV importer (also created by migration 002).
-    await client.query(
-      `INSERT INTO falconmed_v4.branches (id, name, city, counters) VALUES ('br_lab', 'Data Import Lab', 'Sandbox', 4)
-       ON CONFLICT (id) DO NOTHING`,
-    );
+    // Wipe demo organisations only. Paying organisations are never touched.
+    const demo = `SELECT id FROM falconmed_v4.organizations WHERE plan = 'demo'`;
+    await client.query(`DELETE FROM falconmed_v4.tickets
+                         WHERE branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id IN (${demo}))`);
+    await client.query(`DELETE FROM falconmed_v4.import_batches WHERE org_id IN (${demo})`);
+    await client.query(`DELETE FROM falconmed_v4.users WHERE org_id IN (${demo})`);
+    await client.query(`DELETE FROM falconmed_v4.branches WHERE org_id IN (${demo})`);
 
+    const hash = await bcrypt.hash(env.DEMO_PASSWORD, 10);
     const now = new Date();
     const today = todayIso(env.TIMEZONE);
     const all = [];
-    for (let d = days - 1; d >= 0; d--) {
-      const iso = new Date(new Date(`${today}T00:00:00Z`).getTime() - d * 86_400_000).toISOString().slice(0, 10);
-      for (const b of BRANCHES) all.push(...simulateDay(b, staffByBranch[b.id], iso, now));
+    const totals = { branches: 0, pharmacists: 0, managers: 0, admins: 0 };
+
+    for (const o of ORGS) {
+      const staffByBranch = {};
+      let p = 0;
+      for (const [bi, b] of o.branches.entries()) {
+        await client.query(
+          'INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters) VALUES ($1, $2, $3, $4, $5)',
+          [b.id, o.id, b.name, b.city, b.counters],
+        );
+        staffByBranch[b.id] = [];
+        for (let c = 1; c <= b.counters; c++) {
+          const primary = o.primaryLogins && bi === 0 && c === 1;
+          const user = {
+            id: `u_ph_${b.id.slice(3)}_${c}`,
+            email: primary ? `pharmacist@${o.domain}` : `ph.${b.id.slice(3)}.${c}@${o.domain}`,
+            name: o.pharmacists[p++ % o.pharmacists.length],
+            counter_no: c,
+          };
+          await client.query(
+            `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, counter_no, password_hash)
+             VALUES ($1, $2, $3, $4, 'pharmacist', $5, $6, $7)`,
+            [user.id, o.id, user.email, user.name, b.id, c, hash],
+          );
+          staffByBranch[b.id].push(user);
+        }
+        const primaryManager = o.primaryLogins && bi === 0;
+        await client.query(
+          `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, password_hash)
+           VALUES ($1, $2, $3, $4, 'manager', $5, $6)`,
+          [`u_mg_${b.id.slice(3)}`, o.id, primaryManager ? `manager@${o.domain}` : `manager.${b.id.slice(3)}@${o.domain}`,
+            o.managers[bi % o.managers.length], b.id, hash],
+        );
+        totals.managers++;
+      }
+      await client.query(
+        `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, password_hash)
+         VALUES ($1, $2, $3, $4, 'admin', $5)`,
+        [o.admin.id, o.id, `admin@${o.domain}`, o.admin.name, hash],
+      );
+      // Empty sandbox branch for trying the CSV importer.
+      await client.query(
+        `INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters) VALUES ($1, $2, 'Data Import Lab', 'Sandbox', 4)`,
+        [o.lab, o.id],
+      );
+
+      for (let d = days - 1; d >= 0; d--) {
+        const iso = new Date(new Date(`${today}T00:00:00Z`).getTime() - d * 86_400_000).toISOString().slice(0, 10);
+        for (const b of o.branches) all.push(...simulateDay(b, staffByBranch[b.id], iso, now));
+      }
+      totals.branches += o.branches.length;
+      totals.pharmacists += Object.values(staffByBranch).flat().length;
+      totals.admins++;
     }
     await insertTickets(client, all);
     await client.query('COMMIT');
 
-    log(`✅ Seeded ${BRANCHES.length} branches, ${Object.values(staffByBranch).flat().length} pharmacists, ` +
-        `${BRANCHES.length} managers, 1 admin and ${all.length.toLocaleString()} tickets over ${days} days.`);
-    log(`   Demo sign-in: pharmacist@ / manager@ / admin@demo.falconmed.app — password from DEMO_PASSWORD`);
+    log(`✅ Seeded ${ORGS.length} demo organisations: ${totals.branches} branches, ${totals.pharmacists} pharmacists, ` +
+        `${totals.managers} managers, ${totals.admins} admins and ${all.length.toLocaleString()} tickets over ${days} days (up to today).`);
+    log('   Demo sign-in: pharmacist@ / manager@ / admin@demo.falconmed.app and admin@oasis.demo.falconmed.app — password from DEMO_PASSWORD');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
     client.release();
   }
+}
+
+/**
+ * True when the demo needs rebuilding: an organisation is missing, or the
+ * newest demo ticket arrived more than `maxAgeHours` ago.
+ */
+export async function demoIsStale({ maxAgeHours = 12 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT (SELECT COUNT(*)::int FROM falconmed_v4.organizations WHERE id = ANY($1) AND plan = 'demo') AS orgs,
+            (SELECT MAX(arrived_at) FROM falconmed_v4.tickets
+              WHERE branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = ANY($1))) AS newest`,
+    [ORGS.map((o) => o.id)],
+  );
+  const { orgs, newest } = rows[0];
+  return orgs < ORGS.length || !newest || Date.now() - new Date(newest).getTime() > maxAgeHours * 3_600_000;
+}
+
+/** Rebuild the demo organisations if they are out of date (see DEMO_AUTO_REFRESH). */
+export async function refreshDemoIfStale({ log = console.log } = {}) {
+  if (!(await demoIsStale())) return false;
+  log('🔄 Demo data is out of date — rebuilding it up to now…');
+  await seed({ reset: true, log, skipIfBusy: true });
+  return true;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

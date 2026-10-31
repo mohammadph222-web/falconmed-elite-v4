@@ -1,8 +1,10 @@
-# FalconMed Elite v4
+# FalconMed Elite v4.4
 
 **Pharmacy queue performance analytics, from the queue machine to the counter to the network view.**
 
 FalconMed Elite measures how long patients wait and how they are served across a multi-branch outpatient pharmacy network. Every KPI is calculated from real arrival, call and finish timestamps, and each role sees only what it should: the pharmacist their own counter, the manager their branch, the admin the whole network.
+
+It is **multi-tenant**: several pharmacy groups can share one deployment, and each organisation only ever sees its own branches, staff, tickets and imports. The demo runs two fictional organisations side by side to prove it. See [docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md).
 
 > Built by a hospital pharmacist with 18 years of outpatient and inpatient practice in the UAE, to show how operational pharmacy knowledge translates into a working informatics system.
 > This repository runs on a **simulated** network: no real patient data, no patient names.
@@ -32,7 +34,8 @@ flowchart LR
 ```
 
 - **One source of truth.** All metrics read the `ticket_metrics` view: wait = call − arrival, service = finish − call. See [docs/KPI_DEFINITIONS.md](docs/KPI_DEFINITIONS.md).
-- **Server-side scoping.** The API decides what a user may see. A pharmacist cannot request another pharmacist's numbers by editing a URL.
+- **Server-side scoping.** The API decides what a user may see. A pharmacist cannot request another pharmacist's numbers by editing a URL, and no user can reach another organisation's data.
+- **Tenant isolation in three layers.** Every query is filtered by the user's organisation; requests naming another organisation's branch or pharmacist are refused (403); and the database itself rejects a user attached to another organisation's branch.
 - **Concurrency-safe counters.** `SELECT … FOR UPDATE SKIP LOCKED` guarantees two counters pressing *Call next* together never receive the same patient. A unique partial index allows one open ticket per pharmacist.
 - **Honest end of day.** Tickets left open overnight become `abandoned` (left unseen) or `auto_closed` rather than blocking counters or inflating waits.
 - **Privacy by design.** No patient names are stored. `patientRef` accepts a de-identified code only, and the importer drops identifier columns (names, phones, Emirates ID) before reading them.
@@ -45,7 +48,7 @@ flowchart LR
 | Frontend | React 18, Vite 5, Tailwind CSS, Recharts, React Router 7, lucide icons. Route-level code splitting. |
 | Backend | Node 20, Express 4, `pg`, zod validation, JWT + bcrypt, helmet, rate limiting |
 | Database | PostgreSQL 16 (Neon). Versioned SQL migrations, check constraints that make invalid ticket states impossible. |
-| Testing | 33 end-to-end API tests (`node:test` + supertest) against a real PostgreSQL |
+| Testing | 46 end-to-end API tests (`node:test` + supertest) against a real PostgreSQL |
 | Hosting | Vercel + Render + Neon + Cloudflare, all free tier |
 
 ## Quick start
@@ -66,7 +69,7 @@ The full deployment guide is in [docs/DEPLOYMENT_AR.md](docs/DEPLOYMENT_AR.md).
 
 ## The simulated network
 
-`npm run seed` does not write random KPI numbers. It **simulates** each day as a multi-counter queue: arrivals follow an outpatient demand curve peaking at 15:00–16:00, staffing varies by hour, service times follow a log-normal distribution per service line, and patients wait for the earliest free counter. Waiting times rise and fall naturally, and branches with tighter staffing land in the *Watch* band. The output is reproducible (seeded RNG): 5 UAE branches, 21 pharmacists, ~2,400 tickets per day.
+`npm run seed` does not write random KPI numbers. It **simulates** each day as a multi-counter queue: arrivals follow an outpatient demand curve peaking at 15:00–16:00, staffing varies by hour, service times follow a log-normal distribution per service line, and patients wait for the earliest free counter. Waiting times rise and fall naturally, and branches with tighter staffing land in the *Watch* band. The output is reproducible (seeded RNG): two organisations — *FalconMed Demo Network* (5 UAE branches, 21 pharmacists) and *Oasis Care Pharmacies* (2 Sharjah branches) — each with a *Data Import Lab* sandbox. `npm run seed:refresh` rebuilds it up to today, touching demo organisations only.
 
 ## Tests
 
@@ -75,7 +78,7 @@ cd backend
 DATABASE_URL=postgresql://…/a_disposable_db npm test
 ```
 
-The tests cover: authentication and forged tokens; role scoping (pharmacist / manager / admin boundaries); SQL-injection and invalid-date rejection; KPI reconciliation against raw SQL; staff = pharmacists, with counts summing to the branch; hourly and daily series completeness; no hard-coded metrics on empty periods; kiosk key auth; concurrent *Call next* safety; ownership of ticket closure; live board scoping; end-of-day housekeeping; same-time comparison for periods that include today; importer quality checks, privacy guard, duplicate protection, rollback, and a 50,000-row stress import.
+The tests cover: authentication and forged tokens; role scoping (pharmacist / manager / admin boundaries); SQL-injection and invalid-date rejection; KPI reconciliation against raw SQL; staff = pharmacists, with counts summing to the branch; hourly and daily series completeness; no hard-coded metrics on empty periods; kiosk key auth; concurrent *Call next* safety; ownership of ticket closure; live board scoping; end-of-day housekeeping; same-time comparison for periods that include today; importer quality checks, privacy guard, duplicate protection, rollback, and a 50,000-row stress import; tenant isolation (branches, KPIs, live queue, simulator, imports, suspended organisations) and demo refreshes that never touch real organisations.
 
 ## What v4 changed from v3
 
@@ -89,7 +92,7 @@ The tests cover: authentication and forged tokens; role scoping (pharmacist / ma
 | Front-end-only login, passwords in the JS bundle | Server-side JWT auth, bcrypt hashes, login rate limit |
 | Pharmacist view showed everyone's last 50 patients | Scoped server-side to the signed-in pharmacist |
 | Branch IDs mixed integer/text, branch names inconsistent | Typed foreign keys, one branches table |
-| No tests, 635 KB single bundle | 33 API tests, code-split bundle |
+| No tests, 635 KB single bundle | 46 API tests, code-split bundle |
 
 ## Project structure
 
