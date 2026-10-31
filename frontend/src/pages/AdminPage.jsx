@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Building2, ChevronRight } from 'lucide-react';
 import { useApi } from '../lib/useApi';
 import { compareLabel, presetRange } from '../lib/dates';
@@ -58,8 +59,12 @@ function BranchTable({ rows, selected, onSelect }) {
 }
 
 export default function AdminPage() {
-  const [range, setRange] = useState({ preset: '30d', ...presetRange('30d') });
-  const [branchId, setBranchId] = useState(null);
+  const [searchParams] = useSearchParams();
+  const linked = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('from') ?? '') && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('to') ?? '');
+  const [range, setRange] = useState(
+    linked ? { preset: 'custom', from: searchParams.get('from'), to: searchParams.get('to') } : { preset: '30d', ...presetRange('30d') },
+  );
+  const [branchId, setBranchId] = useState(searchParams.get('branchId') || null);
   const [mixKind, setMixKind] = useState('service');
 
   const net = { from: range.from, to: range.to };

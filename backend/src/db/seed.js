@@ -14,6 +14,7 @@ import { pool } from '../config/db.js';
 import { env } from '../config/env.js';
 import { migrate } from './migrate.js';
 import { SERVICE_PREFIX } from '../services/queue.js';
+import { localToUtc } from '../lib/time.js';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -80,22 +81,7 @@ const SERVICE = {
 };
 const SOURCE = { mobile: 62, kiosk: 33, walk_in: 5 };
 
-// ── timezone helpers ─────────────────────────────────────────────
-function tzOffsetMs(date, tz) {
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    }).formatToParts(date).map((x) => [x.type, x.value]),
-  );
-  const diff = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - date.getTime();
-  return Math.round(diff / 60_000) * 60_000; // offsets are whole minutes; drop the sub-second remainder
-}
-/** UTC instant for local wall-clock minutes-after-midnight on a business date. */
-function localToUtc(isoDate, minutes, tz) {
-  const guess = new Date(`${isoDate}T00:00:00Z`).getTime() + minutes * 60_000;
-  return new Date(guess - tzOffsetMs(new Date(guess), tz));
-}
+// ── timezone helpers (shared) ───────────────────────────────────
 const todayIso = (tz) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
@@ -192,14 +178,14 @@ export async function seed({ days = DAYS, reset = RESET, log = console.log } = {
   await migrate({ log: () => {} });
   const client = await pool.connect();
   try {
-    const { rows: existing } = await client.query('SELECT COUNT(*)::int AS n FROM falconmed_v4.branches');
+    const { rows: existing } = await client.query('SELECT COUNT(*)::int AS n FROM falconmed_v4.users');
     if (existing[0].n > 0 && !reset) {
       log('ℹ️  Demo data already present. Run `npm run seed -- --reset` to rebuild it.');
       return;
     }
 
     await client.query('BEGIN');
-    await client.query('TRUNCATE falconmed_v4.tickets, falconmed_v4.users, falconmed_v4.branches RESTART IDENTITY CASCADE');
+    await client.query('TRUNCATE falconmed_v4.import_batches, falconmed_v4.tickets, falconmed_v4.users, falconmed_v4.branches RESTART IDENTITY CASCADE');
 
     const hash = await bcrypt.hash(env.DEMO_PASSWORD, 10);
     for (const b of BRANCHES) {
@@ -238,6 +224,11 @@ export async function seed({ days = DAYS, reset = RESET, log = console.log } = {
       `INSERT INTO falconmed_v4.users (id, email, full_name, role, password_hash)
        VALUES ('u_admin', 'admin@demo.falconmed.app', 'Network Administrator', 'admin', $1)`,
       [hash],
+    );
+    // Empty sandbox branch for trying the CSV importer (also created by migration 002).
+    await client.query(
+      `INSERT INTO falconmed_v4.branches (id, name, city, counters) VALUES ('br_lab', 'Data Import Lab', 'Sandbox', 4)
+       ON CONFLICT (id) DO NOTHING`,
     );
 
     const now = new Date();

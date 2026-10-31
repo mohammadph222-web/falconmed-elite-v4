@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Activity, Building2, FlaskConical, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, X } from 'lucide-react';
+import { Activity, Building2, FileUp, FlaskConical, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { cn, ROLE_LABEL } from '../lib/format';
 
@@ -9,11 +9,13 @@ const NAV = {
   manager: [
     { to: '/branch', label: 'Branch performance', icon: LayoutDashboard },
     { to: '/live', label: 'Live queue', icon: Activity },
+    { to: '/import', label: 'Import data', icon: FileUp },
     { to: '/simulator', label: 'Queue simulator', icon: FlaskConical },
   ],
   admin: [
     { to: '/network', label: 'Network overview', icon: Network },
     { to: '/live', label: 'Live queue', icon: Activity },
+    { to: '/import', label: 'Import data', icon: FileUp },
     { to: '/simulator', label: 'Queue simulator', icon: FlaskConical },
   ],
 };
@@ -28,7 +30,7 @@ function Brand() {
       </div>
       <div className="leading-tight">
         <div className="font-display text-[15px] font-semibold text-white">FalconMed Elite</div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-400">Queue analytics · v4</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-400">Queue analytics · v4.3</div>
       </div>
     </div>
   );

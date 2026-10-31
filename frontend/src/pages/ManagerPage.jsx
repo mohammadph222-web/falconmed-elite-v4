@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { useApi } from '../lib/useApi';
 import { useAuth } from '../lib/auth';
@@ -15,7 +15,11 @@ import { Spinner } from '../components/States';
 
 export default function ManagerPage() {
   const { user } = useAuth();
-  const [range, setRange] = useState({ preset: '7d', ...presetRange('7d') });
+  const [searchParams] = useSearchParams();
+  const linked = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('from') ?? '') && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('to') ?? '');
+  const [range, setRange] = useState(
+    linked ? { preset: 'custom', from: searchParams.get('from'), to: searchParams.get('to') } : { preset: '7d', ...presetRange('7d') },
+  );
   const [mixKind, setMixKind] = useState('service');
   const params = { from: range.from, to: range.to };
 

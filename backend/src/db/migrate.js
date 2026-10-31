@@ -10,11 +10,23 @@ export async function migrate({ log = console.log } = {}) {
   const client = await pool.connect();
   try {
     // Safety: never build on top of a same-named schema created by another project.
-    const { rows: foreign } = await client.query(
-      `SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'falconmed_v4'
-          AND table_name NOT IN ('branches', 'users', 'tickets', 'ticket_metrics', 'schema_migrations')`,
+    // Once our own migrations have run (schema_migrations has rows), the schema is ours.
+    const { rows: ours } = await client.query(
+      `SELECT to_regclass('falconmed_v4.schema_migrations') IS NOT NULL
+              AND EXISTS (SELECT 1 FROM information_schema.tables
+                           WHERE table_schema = 'falconmed_v4' AND table_name = 'schema_migrations') AS ok`,
     );
+    let initialised = false;
+    if (ours[0].ok) {
+      const { rows } = await client.query('SELECT COUNT(*)::int AS n FROM falconmed_v4.schema_migrations');
+      initialised = rows[0].n > 0;
+    }
+    const { rows: foreign } = initialised
+      ? { rows: [] }
+      : await client.query(
+          `SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'falconmed_v4' AND table_name <> 'schema_migrations'`,
+        );
     if (foreign.length) {
       throw new Error(
         `Schema "falconmed_v4" already contains tables from another project (${foreign.map((r) => r.table_name).join(', ')}). ` +

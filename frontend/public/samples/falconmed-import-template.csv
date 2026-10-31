@@ -1,0 +1,4 @@
+ticket_no,branch,arrived_at,called_at,finished_at,service_type,outcome,counter_no,pharmacist,identified,patient_ref
+A-001,br_lab,2026-10-04 08:03:12,2026-10-04 08:04:01,2026-10-04 08:07:45,prescription,served,1,,yes,MRN-482913
+R-001,br_lab,2026-10-04 08:05:40,2026-10-04 08:07:52,2026-10-04 08:09:30,refill,served,2,,yes,
+A-002,br_lab,2026-10-04 08:09:05,2026-10-04 08:10:11,2026-10-04 08:11:02,prescription,no_show,1,,no,

@@ -151,9 +151,10 @@ test('no metric is a hard-coded constant: empty period returns nulls, not 99.3 o
   assert.ok(!('rating' in k));
 });
 
-test('branch comparison covers all five branches with a derived status', async () => {
+test('branch comparison covers every branch (5 live + import lab) with a derived status', async () => {
   const res = await get('admin', `/api/metrics/branches?from=${monthAgo}&to=${today}`);
-  assert.equal(res.body.data.length, 5);
+  assert.equal(res.body.data.length, 6);
+  assert.equal(res.body.data.find((b) => b.id === 'br_lab').status, 'no_data');
   assert.ok(res.body.data.every((b) => ['on_target', 'watch', 'action', 'no_data'].includes(b.status)));
 });
 

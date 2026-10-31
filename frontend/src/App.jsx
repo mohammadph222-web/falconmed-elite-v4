@@ -11,6 +11,7 @@ const ManagerPage = lazy(() => import('./pages/ManagerPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const LiveQueuePage = lazy(() => import('./pages/LiveQueuePage'));
 const SimulatorPage = lazy(() => import('./pages/SimulatorPage'));
+const ImportPage = lazy(() => import('./pages/ImportPage'));
 
 
 function RequireRole({ roles, children }) {
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/network" element={<RequireRole roles={['admin']}><AdminPage /></RequireRole>} />
           <Route path="/live" element={<RequireRole roles={['manager', 'admin']}><LiveQueuePage /></RequireRole>} />
           <Route path="/simulator" element={<RequireRole roles={['manager', 'admin']}><SimulatorPage /></RequireRole>} />
+          <Route path="/import" element={<RequireRole roles={['manager', 'admin']}><ImportPage /></RequireRole>} />
           <Route path="*" element={<Navigate to={HOME[user.role]} replace />} />
         </Routes>
       </Suspense>

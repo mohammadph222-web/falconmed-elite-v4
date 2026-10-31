@@ -34,7 +34,7 @@ export const SERVICE_LABEL = {
   otc: 'OTC',
   insurance: 'Insurance approval',
 };
-export const SOURCE_LABEL = { mobile: 'Mobile booking', kiosk: 'Kiosk', walk_in: 'Walk-in', simulator: 'Simulator' };
+export const SOURCE_LABEL = { mobile: 'Mobile booking', kiosk: 'Kiosk', walk_in: 'Walk-in', simulator: 'Simulator', import: 'Imported file' };
 export const ROLE_LABEL = { pharmacist: 'Pharmacist', manager: 'Branch manager', admin: 'Network admin' };
 
 export const cn = (...parts) => parts.filter(Boolean).join(' ');

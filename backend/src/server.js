@@ -19,7 +19,7 @@ async function start() {
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {
-    console.log(`🚀 FalconMed Elite API v4.2 listening on :${env.PORT} (${env.NODE_ENV})`);
+    console.log(`🚀 FalconMed Elite API v4.3 listening on :${env.PORT} (${env.NODE_ENV})`);
   });
 
   const shutdown = (signal) => {

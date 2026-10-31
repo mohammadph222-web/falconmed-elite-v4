@@ -35,6 +35,7 @@ export function errorHandler(isProd) {
   return (err, req, res, next) => {
     if (err instanceof ZodError) err = badRequest('Invalid request');
     if (err?.type === 'entity.parse.failed') err = badRequest('Malformed JSON body');
+    if (err?.type === 'entity.too.large') err = new HttpError(413, 'The file is too large', 'TOO_LARGE');
 
     // PostgreSQL constraint violations → client errors, not 500s.
     if (err?.code === '23505') err = conflict('That record conflicts with an existing one');
