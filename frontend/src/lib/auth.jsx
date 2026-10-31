@@ -44,7 +44,22 @@ export function AuthProvider({ children }) {
 
   const retry = useCallback(() => setStatus('checking'), []);
 
-  const value = useMemo(() => ({ user, status, login, logout, retry }), [user, status, login, logout, retry]);
+  /** After a password change the server issues a new token (older sessions are signed out). */
+  const replaceSession = useCallback((token, nextUser) => {
+    tokenStore.set(token);
+    setUser(nextUser);
+  }, []);
+
+  /** Re-read the signed-in user (e.g. after renaming the organisation). */
+  const refreshUser = useCallback(async () => {
+    const r = await api('/auth/me');
+    setUser(r.data);
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, status, login, logout, retry, replaceSession, refreshUser }),
+    [user, status, login, logout, retry, replaceSession, refreshUser],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

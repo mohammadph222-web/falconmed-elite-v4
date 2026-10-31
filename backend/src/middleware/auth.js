@@ -2,10 +2,12 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { query } from '../config/db.js';
-import { asyncHandler, forbidden, unauthorized } from '../lib/http.js';
+import { asyncHandler, forbidden, HttpError, unauthorized } from '../lib/http.js';
+
+const PASSWORD_CHANGE_PATHS = new Set(['/api/auth/me', '/api/auth/password']);
 
 export function signToken(user) {
-  return jwt.sign({ role: user.role, orgId: user.org_id, branchId: user.branch_id }, env.JWT_SECRET, {
+  return jwt.sign({ role: user.role, orgId: user.org_id, branchId: user.branch_id, tv: user.token_version ?? 0 }, env.JWT_SECRET, {
     subject: user.id,
     expiresIn: env.JWT_EXPIRES_IN,
   });
@@ -14,6 +16,7 @@ export function signToken(user) {
 export async function loadUser(id) {
   const { rows } = await query(
     `SELECT u.id, u.email, u.full_name, u.role, u.org_id, u.branch_id, u.counter_no,
+            u.must_change_password, u.token_version, u.is_demo_fixture,
             (u.is_active AND o.is_active) AS is_active,
             b.name AS branch_name, o.name AS org_name, o.plan AS org_plan
        FROM falconmed_v4.users u
@@ -36,6 +39,8 @@ export const publicUser = (u) => ({
   branchId: u.branch_id,
   branchName: u.branch_name ?? null,
   counterNo: u.counter_no,
+  mustChangePassword: Boolean(u.must_change_password),
+  demoProtected: Boolean(u.is_demo_fixture),
 });
 
 function readBearer(req) {
@@ -55,6 +60,14 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
   }
   const user = await loadUser(payload.sub);
   if (!user || !user.is_active) throw unauthorized('Account is not active');
+  // A password change or reset signs out every session issued before it.
+  if ((payload.tv ?? 0) !== user.token_version) {
+    throw unauthorized('Your password was changed. Please sign in again.');
+  }
+  // A temporary password must be replaced before anything else.
+  if (user.must_change_password && !PASSWORD_CHANGE_PATHS.has(req.baseUrl + req.path)) {
+    throw new HttpError(403, 'Please choose a new password first', 'PASSWORD_CHANGE_REQUIRED');
+  }
   req.user = user;
   next();
 });

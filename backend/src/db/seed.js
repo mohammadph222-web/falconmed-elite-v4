@@ -255,7 +255,7 @@ export async function seed({ days = DAYS, reset = RESET, log = console.log, skip
       let p = 0;
       for (const [bi, b] of o.branches.entries()) {
         await client.query(
-          'INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters) VALUES ($1, $2, $3, $4, $5)',
+          'INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters, is_demo_fixture) VALUES ($1, $2, $3, $4, $5, TRUE)',
           [b.id, o.id, b.name, b.city, b.counters],
         );
         staffByBranch[b.id] = [];
@@ -268,29 +268,29 @@ export async function seed({ days = DAYS, reset = RESET, log = console.log, skip
             counter_no: c,
           };
           await client.query(
-            `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, counter_no, password_hash)
-             VALUES ($1, $2, $3, $4, 'pharmacist', $5, $6, $7)`,
+            `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, counter_no, password_hash, is_demo_fixture)
+             VALUES ($1, $2, $3, $4, 'pharmacist', $5, $6, $7, TRUE)`,
             [user.id, o.id, user.email, user.name, b.id, c, hash],
           );
           staffByBranch[b.id].push(user);
         }
         const primaryManager = o.primaryLogins && bi === 0;
         await client.query(
-          `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, password_hash)
-           VALUES ($1, $2, $3, $4, 'manager', $5, $6)`,
+          `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, password_hash, is_demo_fixture)
+           VALUES ($1, $2, $3, $4, 'manager', $5, $6, TRUE)`,
           [`u_mg_${b.id.slice(3)}`, o.id, primaryManager ? `manager@${o.domain}` : `manager.${b.id.slice(3)}@${o.domain}`,
             o.managers[bi % o.managers.length], b.id, hash],
         );
         totals.managers++;
       }
       await client.query(
-        `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, password_hash)
-         VALUES ($1, $2, $3, $4, 'admin', $5)`,
+        `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, password_hash, is_demo_fixture)
+         VALUES ($1, $2, $3, $4, 'admin', $5, TRUE)`,
         [o.admin.id, o.id, `admin@${o.domain}`, o.admin.name, hash],
       );
       // Empty sandbox branch for trying the CSV importer.
       await client.query(
-        `INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters) VALUES ($1, $2, 'Data Import Lab', 'Sandbox', 4)`,
+        `INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters, is_demo_fixture) VALUES ($1, $2, 'Data Import Lab', 'Sandbox', 4, TRUE)`,
         [o.lab, o.id],
       );
 

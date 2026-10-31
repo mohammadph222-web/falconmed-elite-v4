@@ -11,6 +11,7 @@ import metricsRoutes from './routes/metrics.js';
 import queueRoutes from './routes/queue.js';
 import branchRoutes from './routes/branches.js';
 import importRoutes from './routes/imports.js';
+import orgRoutes from './routes/org.js';
 
 export function createApp() {
   const app = express();
@@ -28,7 +29,7 @@ export function createApp() {
         if (/^https:\/\/falconmed-[a-z0-9-]+\.vercel\.app$/.test(origin)) return cb(null, true);
         cb(null, false);
       },
-      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Queue-Key'],
       maxAge: 86400,
     }),
@@ -56,6 +57,7 @@ export function createApp() {
   app.use('/api/queue', queueRoutes);
   app.use('/api/branches', branchRoutes);
   app.use('/api/imports', importRoutes);
+  app.use('/api/org', orgRoutes);
 
   app.use((req, res, next) => next(notFound(`No route for ${req.method} ${req.path}`)));
   app.use(errorHandler(env.isProd));

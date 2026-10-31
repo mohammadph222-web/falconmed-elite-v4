@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Activity, Building2, FileUp, FlaskConical, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, X } from 'lucide-react';
+import { Activity, Building2, FileUp, FlaskConical, KeyRound, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, Settings2, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { cn, ROLE_LABEL } from '../lib/format';
 import { APP_VERSION } from '../lib/version';
@@ -18,6 +18,7 @@ const NAV = {
     { to: '/live', label: 'Live queue', icon: Activity },
     { to: '/import', label: 'Import data', icon: FileUp },
     { to: '/simulator', label: 'Queue simulator', icon: FlaskConical },
+    { to: '/settings', label: 'Settings', icon: Settings2 },
   ],
 };
 
@@ -90,9 +91,14 @@ function Sidebar({ onNavigate }) {
             </div>
           )}
         </div>
-        <button onClick={logout} className="btn-ghost w-full">
-          <LogOut className="h-4 w-4" aria-hidden /> Sign out
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <NavLink to="/account" onClick={onNavigate} className={({ isActive }) => cn('btn-ghost px-3', isActive && 'border-brand/50 text-white')}>
+            <KeyRound className="h-4 w-4" aria-hidden /> Account
+          </NavLink>
+          <button onClick={logout} className="btn-ghost px-3">
+            <LogOut className="h-4 w-4" aria-hidden /> Sign out
+          </button>
+        </div>
       </div>
     </div>
   );

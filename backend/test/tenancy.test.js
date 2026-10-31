@@ -164,7 +164,7 @@ test('the database itself refuses a user whose branch belongs to another organis
   await assert.rejects(
     pool.query(
       `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, branch_id, counter_no, password_hash)
-       VALUES ('u_bad', 'org_oasis', 'bad@example.com', 'Bad', 'pharmacist', 'br_ad01', 1, 'x')`,
+       VALUES ('u_bad', 'org_oasis', 'bad@example.com', 'Bad', 'pharmacist', 'br_ad01', 49, 'x')`,
     ),
     /users_branch_same_org/,
   );

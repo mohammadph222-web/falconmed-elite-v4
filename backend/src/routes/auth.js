@@ -3,7 +3,8 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { query } from '../config/db.js';
-import { asyncHandler, parse, unauthorized } from '../lib/http.js';
+import { asyncHandler, badRequest, forbidden, parse, unauthorized } from '../lib/http.js';
+import { newPasswordSchema } from '../lib/passwords.js';
 import { publicUser, requireAuth, signToken } from '../middleware/auth.js';
 
 const router = Router();
@@ -14,6 +15,7 @@ const loginLimiter = rateLimit({
   limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  skipSuccessfulRequests: true, // only failed attempts count towards the limit
   message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many sign-in attempts. Try again in 15 minutes.' } },
 });
 
@@ -51,6 +53,36 @@ router.post(
 router.get('/me', requireAuth, (req, res) => {
   res.json({ success: true, data: publicUser(req.user) });
 });
+
+/**
+ * POST /api/auth/password — { currentPassword, newPassword }
+ * Signs out every other session and returns a fresh token for this one.
+ */
+router.post(
+  '/password',
+  loginLimiter,
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = parse(
+      z.object({ currentPassword: z.string().min(1).max(200), newPassword: newPasswordSchema }),
+      req.body,
+    );
+    if (req.user.is_demo_fixture) throw forbidden('Demo accounts keep their shared password so everyone can sign in.');
+    const { rows } = await query('SELECT password_hash FROM falconmed_v4.users WHERE id = $1', [req.user.id]);
+    if (!(await bcrypt.compare(currentPassword, rows[0].password_hash))) throw badRequest('Your current password is not correct');
+    if (currentPassword === newPassword) throw badRequest('Choose a password different from the current one');
+
+    const { rows: upd } = await query(
+      `UPDATE falconmed_v4.users
+          SET password_hash = $2, must_change_password = FALSE, password_changed_at = now(),
+              token_version = token_version + 1
+        WHERE id = $1 RETURNING token_version`,
+      [req.user.id, await bcrypt.hash(newPassword, 10)],
+    );
+    const user = { ...req.user, must_change_password: false, token_version: upd[0].token_version };
+    res.json({ success: true, data: { token: signToken(user), user: publicUser(user) } });
+  }),
+);
 
 // Shown on the login screen, in this order. The last one belongs to a second
 // demo organisation, to show that organisations are fully separated.

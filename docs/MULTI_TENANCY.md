@@ -43,6 +43,20 @@ Migration `003_organizations.sql` runs automatically on start-up. It creates the
 
 ## Not yet included (next stages)
 
-- Self-service sign-up and an organisation settings page (add branches and staff from the UI).
+- Self-service sign-up (an organisation settings page arrived in v4.5).
 - One queue-machine key per organisation (today `QUEUE_API_KEY` is shared; tickets still land only in the branch named in the request).
 - Billing per plan.
+
+## Organisation settings (v4.5)
+
+Organisation admins open **Settings** to manage their own organisation (API: `/api/org`, admin only, always limited to the admin's organisation):
+
+| Rule | Why |
+|---|---|
+| New accounts get a temporary password and must choose their own at first sign-in (`PASSWORD_CHANGE_REQUIRED` until then) | The admin never knows a user's real password |
+| Changing or resetting a password raises the user's `token_version`, which signs out every older session | A lost or shared device stops working at once |
+| One active pharmacist per counter; counters 1…branch.counters | The counter console and *Call next* rely on it (also a unique index in the database) |
+| A branch with active staff cannot be deactivated; counters cannot be reduced below an occupied counter | Nobody is left assigned to something that no longer exists |
+| A pharmacist serving a patient cannot be moved or deactivated until the ticket is closed | No orphaned open tickets |
+| Every organisation keeps at least one active admin; admins cannot deactivate or demote themselves | No organisation can lock itself out |
+| In `demo` organisations the seeded branches and accounts are protected; visitor additions are editable and removed at the next demo refresh | The public demo keeps working for everyone |

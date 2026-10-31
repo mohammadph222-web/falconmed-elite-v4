@@ -5,6 +5,7 @@ import AppShell from './components/AppShell';
 import { FullScreenMessage, PageLoader } from './components/States';
 import Login from './pages/Login';
 import { HOME } from './lib/routes';
+import { ForcedPasswordChange } from './pages/AccountPage';
 
 const PharmacistPage = lazy(() => import('./pages/PharmacistPage'));
 const ManagerPage = lazy(() => import('./pages/ManagerPage'));
@@ -12,6 +13,8 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const LiveQueuePage = lazy(() => import('./pages/LiveQueuePage'));
 const SimulatorPage = lazy(() => import('./pages/SimulatorPage'));
 const ImportPage = lazy(() => import('./pages/ImportPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const AccountPage = lazy(() => import('./pages/AccountPage'));
 
 
 function RequireRole({ roles, children }) {
@@ -42,6 +45,9 @@ export default function App() {
     );
   }
 
+  // A temporary password must be replaced before anything else.
+  if (user.mustChangePassword) return <ForcedPasswordChange />;
+
   return (
     <AppShell>
       <Suspense fallback={<PageLoader />}>
@@ -52,6 +58,8 @@ export default function App() {
           <Route path="/live" element={<RequireRole roles={['manager', 'admin']}><LiveQueuePage /></RequireRole>} />
           <Route path="/simulator" element={<RequireRole roles={['manager', 'admin']}><SimulatorPage /></RequireRole>} />
           <Route path="/import" element={<RequireRole roles={['manager', 'admin']}><ImportPage /></RequireRole>} />
+          <Route path="/settings" element={<RequireRole roles={['admin']}><SettingsPage /></RequireRole>} />
+          <Route path="/account" element={<AccountPage />} />
           <Route path="*" element={<Navigate to={HOME[user.role]} replace />} />
         </Routes>
       </Suspense>
