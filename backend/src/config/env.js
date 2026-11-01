@@ -50,6 +50,9 @@ const schema = z
     if (e.STRIPE_SECRET_KEY && !e.STRIPE_WEBHOOK_SECRET) {
       ctx.addIssue({ code: 'custom', path: ['STRIPE_WEBHOOK_SECRET'], message: 'is required when STRIPE_SECRET_KEY is set' });
     }
+    if (!e.RESEND_API_KEY) {
+      console.warn('⚠️  RESEND_API_KEY is not set: password reset, invitation and confirmation emails will not be sent.');
+    }
     if (!e.APP_URL.startsWith('https://')) {
       ctx.addIssue({ code: 'custom', path: ['APP_URL'], message: 'must be an https:// URL in production' });
     }
@@ -67,6 +70,7 @@ export const env = {
   ...parsed.data,
   APP_URL: parsed.data.APP_URL.replace(/\/+$/, ''),
   corsOrigins: parsed.data.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
-  corsPreview: parsed.data.CORS_PREVIEW_PATTERN ? new RegExp(parsed.data.CORS_PREVIEW_PATTERN) : null,
+  // Anchored, so a pattern can never match part of a longer, attacker-owned origin.
+  corsPreview: parsed.data.CORS_PREVIEW_PATTERN ? new RegExp(`^(?:${parsed.data.CORS_PREVIEW_PATTERN.replace(/^\^|\$$/g, '')})$`) : null,
   isProd: parsed.data.NODE_ENV === 'production',
 };

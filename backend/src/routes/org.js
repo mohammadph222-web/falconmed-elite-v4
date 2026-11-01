@@ -31,7 +31,7 @@ import { planLimits } from '../lib/plans.js';
 import { parseRange } from '../lib/scope.js';
 import { hashSecret, newSecret } from '../lib/tokens.js';
 import { requireAuth, requireEntitlement, requireRole } from '../middleware/auth.js';
-import { cancelSubscriptionNow } from '../services/billing.js';
+import { cancelAllSubscriptions } from '../services/billing.js';
 import { createLink } from './auth.js';
 
 const router = Router();
@@ -100,10 +100,15 @@ async function checkPlacement(db, orgId, { role, branchId, counterNo, userId = n
   return { branchId, counterNo };
 }
 
-/** 402 when the plan's limit on active branches or team members is already reached. */
+/**
+ * 402 when the plan's limit on active branches or team members is already reached.
+ * Must run inside a transaction: the lock makes concurrent requests for the same
+ * organisation count one after another, so parallel requests cannot overshoot the limit.
+ */
 async function assertWithinPlan(db, user, kind) {
   const limit = planLimits(user.org_plan)[kind];
   if (limit === null) return;
+  await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`plan:${user.org_id}:${kind}`]);
   const table = kind === 'branches' ? 'branches' : 'users';
   const { rows } = await db.query(`SELECT COUNT(*)::int AS n FROM falconmed_v4.${table} WHERE org_id = $1 AND is_active`, [user.org_id]);
   if (rows[0].n >= limit) {
@@ -197,17 +202,21 @@ router.post(
   requireEntitlement,
   asyncHandler(async (req, res) => {
     const b = parse(branchBody, req.body);
-    await assertWithinPlan({ query }, req.user, 'branches');
-    const { rows: clash } = await query(
-      'SELECT 1 FROM falconmed_v4.branches WHERE org_id = $1 AND lower(name) = lower($2)',
-      [req.user.org_id, b.name],
-    );
-    if (clash.length) throw conflict(`You already have a branch called ${b.name}`);
-    const { rows } = await query(
-      `INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [newId('br'), req.user.org_id, b.name, b.city, b.counters],
-    );
+    const rows = await withTransaction(async (c) => {
+      await assertWithinPlan(c, req.user, 'branches');
+      const { rows: clash } = await c.query(
+        'SELECT 1 FROM falconmed_v4.branches WHERE org_id = $1 AND lower(name) = lower($2)',
+        [req.user.org_id, b.name],
+      );
+      if (clash.length) throw conflict(`You already have a branch called ${b.name}`);
+      return (
+        await c.query(
+          `INSERT INTO falconmed_v4.branches (id, org_id, name, city, counters)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [newId('br'), req.user.org_id, b.name, b.city, b.counters],
+        )
+      ).rows;
+    });
     await audit(req, 'branch.create', { target: rows[0].id, meta: { name: b.name } });
     res.status(201).json({ success: true, data: shapeBranch(rows[0]) });
   }),
@@ -366,6 +375,8 @@ router.patch(
           WHERE id = $1 RETURNING *`,
         [user.id, patch.fullName ?? null, next.role, place.branchId, place.counterNo, next.isActive],
       );
+      // A deactivated person's outstanding invitation or reset links stop working.
+      if (!next.isActive) await c.query('DELETE FROM falconmed_v4.auth_tokens WHERE user_id = $1', [user.id]);
       return rows[0];
     });
     await audit(req, 'user.update', { target: data.id, meta: patch });
@@ -388,6 +399,7 @@ router.post(
         WHERE id = $1`,
       [user.id, await hashPassword(temp)],
     );
+    await query(`DELETE FROM falconmed_v4.auth_tokens WHERE user_id = $1 AND purpose = 'password_reset'`, [user.id]);
     await audit(req, 'user.password_reset', { target: user.id });
     res.json({ success: true, data: { temporaryPassword: temp } });
   }),
@@ -524,7 +536,7 @@ router.delete(
     if (!(await bcrypt.compare(password, me[0].password_hash))) throw badRequest('Your password is not correct');
 
     // Stop billing first: if Stripe refuses, nothing is deleted.
-    if (o.stripe_subscription_id) await cancelSubscriptionNow(o.stripe_subscription_id);
+    if (o.stripe_customer_id) await cancelAllSubscriptions(o.stripe_customer_id);
 
     await withTransaction(async (c) => {
       const branches = `SELECT id FROM falconmed_v4.branches WHERE org_id = $1`;
@@ -538,7 +550,7 @@ router.delete(
       await c.query(
         `UPDATE falconmed_v4.organizations
             SET name = 'Deleted organisation', slug = $2, is_active = FALSE, deleted_at = now(),
-                subscription_status = CASE WHEN stripe_subscription_id IS NULL THEN subscription_status ELSE 'canceled' END
+                subscription_status = CASE WHEN stripe_customer_id IS NULL THEN subscription_status ELSE 'canceled' END
           WHERE id = $1`,
         [o.id, `deleted-${crypto.randomBytes(4).toString('hex')}`],
       );

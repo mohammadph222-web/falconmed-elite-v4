@@ -10,7 +10,7 @@ import express, { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../config/db.js';
 import { audit } from '../lib/audit.js';
-import { asyncHandler, conflict, forbidden, parse } from '../lib/http.js';
+import { asyncHandler, forbidden, parse } from '../lib/http.js';
 import { entitlement, PLANS, planLimits } from '../lib/plans.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { billingEnabled, createCheckout, createPortal, priceForPlan, processWebhook } from '../services/billing.js';
@@ -76,9 +76,6 @@ router.post(
     const org = await loadOrg(req.user.org_id);
     if (org.plan === 'demo') throw forbidden('The demo organisation cannot subscribe. Create your own organisation to start a trial.');
     if (!req.user.email_verified_at) throw forbidden('Confirm your email address before subscribing. Check your inbox for the link.');
-    if (org.stripe_subscription_id && ['active', 'trialing', 'past_due'].includes(org.subscription_status)) {
-      throw conflict('You already have a subscription. Use "Manage subscription" to change plan.');
-    }
     const url = await createCheckout(org, req.user, plan);
     await audit(req, 'billing.checkout_started', { meta: { plan } });
     res.json({ success: true, data: { url } });

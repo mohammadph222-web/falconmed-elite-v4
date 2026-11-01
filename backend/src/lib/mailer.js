@@ -28,7 +28,8 @@ export async function sendEmail({ to, subject, ...content }) {
     return;
   }
   if (!env.RESEND_API_KEY) {
-    console.log(`✉️  [email not sent — RESEND_API_KEY unset] to=${to} subject="${subject}"\n${text}`);
+    // In production the body holds live sign-in links, so it never goes to the log.
+    console.log(`✉️  [email not sent — RESEND_API_KEY unset] to=${to} subject="${subject}"${env.isProd ? '' : `\n${text}`}`);
     return;
   }
   try {

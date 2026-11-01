@@ -9,7 +9,15 @@ export async function audit(req, action, { orgId, actorId, target, meta } = {}, 
     await db.query(
       `INSERT INTO falconmed_v4.audit_log (org_id, actor_id, action, target, ip, meta)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [orgId ?? req?.user?.org_id ?? null, actorId ?? req?.user?.id ?? null, action, target ?? null, req?.ip ?? null, meta ?? {}],
+      [
+        orgId ?? req?.user?.org_id ?? null,
+        // An explicit `actorId: null` means "no actor" (e.g. the user was just deleted).
+        actorId !== undefined ? actorId : req?.user?.id ?? null,
+        action,
+        target ?? null,
+        req?.ip ?? null,
+        meta ?? {},
+      ],
     );
   } catch (err) {
     console.error(`audit "${action}" failed:`, err.message);

@@ -11,7 +11,7 @@ export const PLANS = {
 };
 
 /** Stripe statuses that keep a paid organisation working. past_due is a grace period while Stripe retries. */
-const PAID_OK = new Set(['active', 'trialing', 'past_due']);
+export const PAID_OK = new Set(['active', 'trialing', 'past_due']);
 
 /**
  * Can this organisation use the product right now?
@@ -20,11 +20,11 @@ const PAID_OK = new Set(['active', 'trialing', 'past_due']);
 export function entitlement(org, now = Date.now()) {
   const plan = org.plan ?? org.org_plan;
   if (plan === 'demo' || plan === 'enterprise') return { ok: true, reason: null };
-  if (plan === 'trial') {
-    const ends = org.trial_ends_at ? new Date(org.trial_ends_at).getTime() : 0;
-    return ends > now ? { ok: true, reason: null } : { ok: false, reason: 'trial_ended' };
-  }
-  return PAID_OK.has(org.subscription_status) ? { ok: true, reason: null } : { ok: false, reason: 'subscription_inactive' };
+  // A paying subscription always counts, whatever price it is on.
+  if (PAID_OK.has(org.subscription_status)) return { ok: true, reason: null };
+  const ends = org.trial_ends_at ? new Date(org.trial_ends_at).getTime() : 0;
+  if (ends > now) return { ok: true, reason: null }; // unused trial days still count, e.g. while a first payment is pending
+  return { ok: false, reason: plan === 'trial' ? 'trial_ended' : 'subscription_inactive' };
 }
 
 export const planLimits = (plan) => PLANS[plan] ?? PLANS.trial;

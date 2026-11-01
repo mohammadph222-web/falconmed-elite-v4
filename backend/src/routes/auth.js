@@ -69,34 +69,48 @@ router.post(
     const { rows } = await query(
       `SELECT u.*, (u.is_active AND o.is_active AND o.deleted_at IS NULL) AS can_sign_in,
               u.locked_until > now() AS is_locked,
+              (u.last_failed_login_at IS NULL OR u.last_failed_login_at < now() - make_interval(mins => $2)) AS failures_expired,
               b.name AS branch_name, o.name AS org_name, o.plan AS org_plan, o.trial_ends_at,
               o.subscription_status, o.current_period_end, o.cancel_at_period_end
          FROM falconmed_v4.users u
          JOIN falconmed_v4.organizations o ON o.id = u.org_id
     LEFT JOIN falconmed_v4.branches b ON b.id = u.branch_id
         WHERE u.email = $1`,
-      [email],
+      [email, LOCK_MINUTES],
     );
     const user = rows[0];
     const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH);
-    // The lock survives restarts and applies across every server instance.
-    if (user?.is_locked) throw new HttpError(429, LOCKED_MESSAGE, 'RATE_LIMITED');
+    // The lock survives restarts and applies across every server instance. So that a
+    // stranger cannot lock the owner out, the right password from the IP of the last
+    // successful sign-in still gets in.
+    const familiar = Boolean(user?.last_login_ip) && user.last_login_ip === req.ip;
+    if (user?.is_locked && !(ok && familiar)) throw new HttpError(429, LOCKED_MESSAGE, 'RATE_LIMITED');
 
     if (!user || !ok || !user.can_sign_in) {
       if (user) {
+        // Failures older than the lock window are forgotten, so occasional typos never add up to a lock.
         await query(
           `UPDATE falconmed_v4.users
-              SET failed_logins = CASE WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END,
-                  locked_until  = CASE WHEN failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END
+              SET failed_logins = CASE WHEN $4 THEN 1 WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END,
+                  locked_until  = CASE WHEN NOT $4 AND failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END,
+                  last_failed_login_at = now()
             WHERE id = $1`,
-          [user.id, LOCK_AFTER, LOCK_MINUTES],
+          [user.id, LOCK_AFTER, LOCK_MINUTES, user.failures_expired],
         );
         await audit(req, 'auth.login_failed', { orgId: user.org_id, actorId: user.id });
       }
       throw unauthorized('Incorrect email or password');
     }
 
-    await query('UPDATE falconmed_v4.users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1', [user.id]);
+    // Hashes from before v5 used a lower bcrypt cost: upgrade them while the password is at hand.
+    const rehash = bcrypt.getRounds(user.password_hash) < BCRYPT_COST ? await hashPassword(password) : null;
+    await query(
+      `UPDATE falconmed_v4.users
+          SET failed_logins = 0, locked_until = NULL, last_failed_login_at = NULL, last_login_at = now(), last_login_ip = $2,
+              password_hash = COALESCE($3, password_hash)
+        WHERE id = $1`,
+      [user.id, req.ip, rehash],
+    );
     await audit(req, 'auth.login', { orgId: user.org_id, actorId: user.id });
     res.json({ success: true, data: { token: signToken(user), user: publicUser(user) } });
   }),
@@ -250,6 +264,7 @@ router.post(
         WHERE id = $1 RETURNING token_version`,
       [req.user.id, await hashPassword(newPassword)],
     );
+    await query('DELETE FROM falconmed_v4.auth_tokens WHERE user_id = $1 AND purpose = $2', [req.user.id, 'password_reset']);
     await audit(req, 'auth.password_change');
     const user = { ...req.user, must_change_password: false, token_version: upd[0].token_version };
     res.json({ success: true, data: { token: signToken(user), user: publicUser(user) } });
@@ -272,7 +287,9 @@ router.post(
       [email],
     );
     const user = rows[0];
-    if (user && !user.is_demo_fixture) {
+    // The response must not take longer when the account exists, so the email goes out in the background.
+    const job = (async () => {
+      if (!user || user.is_demo_fixture) return;
       const url = await createLink(user.id, 'password_reset');
       await sendEmail({
         to: user.email,
@@ -285,7 +302,8 @@ router.post(
         action: { label: 'Choose a new password', url },
       });
       await audit(req, 'auth.password_reset_requested', { orgId: user.org_id, actorId: user.id });
-    }
+    })().catch((err) => console.error('password reset email failed:', err.message));
+    if (inTest()) await job; // tests read the email straight after the response
     res.json({ success: true, data: { message: 'If an account exists for that email, we have sent a link to reset the password.' } });
   }),
 );
@@ -302,6 +320,12 @@ router.post(
     const hash = await hashPassword(newPassword);
     const userId = await withTransaction(async (c) => {
       const id = await consumeLink(c, token, 'password_reset');
+      const { rows: active } = await c.query(
+        `SELECT 1 FROM falconmed_v4.users u JOIN falconmed_v4.organizations o ON o.id = u.org_id
+          WHERE u.id = $1 AND u.is_active AND o.is_active AND o.deleted_at IS NULL`,
+        [id],
+      );
+      if (!active.length) throw unauthorized('Account is not active');
       await c.query(
         `UPDATE falconmed_v4.users
             SET password_hash = $2, must_change_password = FALSE, password_changed_at = now(),

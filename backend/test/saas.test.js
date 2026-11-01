@@ -140,17 +140,47 @@ test('plan limits cap active branches and team members', async () => {
 });
 
 // ── sign-in protection ──────────────────────────────────────────
-test('an account locks after repeated failures, even for the right password', async () => {
+const loginFrom = (ip, email, password) => request(app).post('/api/auth/login').set('X-Forwarded-For', ip).send({ email, password });
+
+test('an account locks after repeated failures; strangers stay out but the owner\'s usual IP gets in', async () => {
   const org = await newOrg();
-  await pool.query(`UPDATE falconmed_v4.users SET failed_logins = 9 WHERE email = $1`, [org.email]);
-  const wrong = await request(app).post('/api/auth/login').send({ email: org.email, password: 'not-it-at-all' });
-  assert.equal(wrong.status, 401);
-  const right = await request(app).post('/api/auth/login').send({ email: org.email, password: 'Strong-Pass-2026' });
-  assert.equal(right.status, 429);
-  assert.equal(right.body.error.code, 'RATE_LIMITED');
+  assert.equal((await loginFrom('203.0.113.10', org.email, 'Strong-Pass-2026')).status, 200, 'owner signs in from home');
+  await pool.query(`UPDATE falconmed_v4.users SET failed_logins = 9, last_failed_login_at = now() WHERE email = $1`, [org.email]);
+  assert.equal((await loginFrom('198.51.100.7', org.email, 'not-it-at-all')).status, 401);
+
+  const stranger = await loginFrom('198.51.100.7', org.email, 'Strong-Pass-2026');
+  assert.equal(stranger.status, 429, 'even with the right password from elsewhere');
+  assert.equal(stranger.body.error.code, 'RATE_LIMITED');
+  assert.equal((await loginFrom('203.0.113.10', org.email, 'wrong-from-home')).status, 429, 'wrong password from home still locked');
+  assert.equal((await loginFrom('203.0.113.10', org.email, 'Strong-Pass-2026')).status, 200, 'owner not locked out by an attacker');
 
   const audit = (await as(org.token).get('/api/org/audit')).body.data;
   assert.ok(audit.some((a) => a.action === 'auth.login_failed'));
+});
+
+test('old failed sign-ins expire, so occasional typos never lock an account', async () => {
+  const org = await newOrg();
+  await pool.query(`UPDATE falconmed_v4.users SET failed_logins = 9, last_failed_login_at = now() - interval '1 hour' WHERE email = $1`, [org.email]);
+  assert.equal((await loginFrom('198.51.100.8', org.email, 'a-typo-here')).status, 401);
+  assert.equal((await loginFrom('198.51.100.8', org.email, 'Strong-Pass-2026')).status, 200);
+});
+
+test('parallel requests cannot exceed the plan limit', async () => {
+  const org = await newOrg(); // trial: 3 branches, 1 already
+  const results = await Promise.all(
+    Array.from({ length: 8 }, (_, i) => as(org.token).post('/api/org/branches', { name: `Rush ${i}`, city: 'X', counters: 1 })),
+  );
+  assert.equal(results.filter((r) => r.status === 201).length, 2);
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM falconmed_v4.branches WHERE org_id = $1 AND is_active', [org.id]);
+  assert.equal(rows[0].n, 3);
+});
+
+test('a deactivated team member\'s invitation link stops working', async () => {
+  const org = await newOrg();
+  const res = await as(org.token).post('/api/org/users', { fullName: 'Short Stay', email: `short.${Date.now()}@saas.example`, role: 'manager', branchId: org.branchId });
+  const token = linkToken(lastEmailTo(res.body.data.user.email));
+  assert.equal((await as(org.token).patch(`/api/org/users/${res.body.data.user.id}`, { isActive: false })).status, 200);
+  assert.equal((await request(app).post('/api/auth/reset-password').send({ token, newPassword: 'Short-Stay-2026' })).status, 400);
 });
 
 test('forgot password: same answer for unknown emails, single-use link, every session signed out', async () => {
@@ -209,6 +239,7 @@ const fakeStripe = {
   checkout: { sessions: { create: async (p) => ({ url: `https://checkout.stripe.test/${p.customer}/${p.line_items[0].price}` }) } },
   billingPortal: { sessions: { create: async (p) => ({ url: `https://billing.stripe.test/${p.customer}` }) } },
   subscriptions: {
+    list: async ({ customer }) => ({ data: [...subscriptions.values()].filter((x) => x.customer === customer) }),
     retrieve: async (id) => subscriptions.get(id),
     cancel: async (id) => ({ ...subscriptions.get(id), status: 'canceled' }),
   },
@@ -254,7 +285,20 @@ test('billing: checkout needs a confirmed email, and a subscription event upgrad
   assert.equal(billing.status, 'active');
   assert.ok(billing.currentPeriodEnd);
   assert.equal((await as(org.token).post('/api/billing/checkout', { plan: 'starter' })).status, 409, 'already subscribed');
+
+  // Two deliveries of one event at the same moment are handled once.
+  const again = { id: `evt_${run}_dup`, type: 'invoice.payment_failed', data: { object: { id: 'in_1', customer: `cus_${org.id}` } } };
+  const before = outbox.length;
+  const both = await Promise.all([sendEvent(again), sendEvent(again)]);
+  assert.deepEqual(both.map((r) => r.body.duplicate).sort(), [false, true]);
+  assert.equal(outbox.length - before, 1, 'one payment-failed email');
   assert.equal((await as(org.token).post('/api/billing/portal')).body.data.url, `https://billing.stripe.test/cus_${org.id}`);
+
+  // A paying subscription keeps access after the trial, even on a price this server does not know (e.g. annual).
+  await setOrg(org.id, `trial_ends_at = now() - interval '1 day'`);
+  subscriptions.set(subId, { ...subscriptions.get(subId), items: { data: [{ price: { id: 'price_annual_unknown' }, current_period_end: 0 }] } });
+  await sendEvent({ id: `evt_${run}_annual`, type: 'customer.subscription.updated', data: { object: { id: subId } } });
+  assert.equal((await as(org.token).get('/api/auth/me')).body.data.entitled, true);
 
   // Cancellation arrives later: the product locks.
   subscriptions.set(subId, { ...subscriptions.get(subId), status: 'canceled' });
@@ -309,6 +353,8 @@ test('an admin can delete the organisation; its people and data are gone', async
     [org.id],
   );
   assert.deepEqual(left.rows[0], { users: 0, branches: 0, name: 'Deleted organisation' });
+  const trail = await pool.query(`SELECT actor_id FROM falconmed_v4.audit_log WHERE org_id = $1 AND action = 'org.delete'`, [org.id]);
+  assert.equal(trail.rows.length, 1, 'the deletion itself is audited');
 });
 
 test('the demo organisation cannot be deleted', async () => {

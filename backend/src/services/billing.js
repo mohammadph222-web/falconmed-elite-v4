@@ -11,6 +11,7 @@ import { env } from '../config/env.js';
 import { audit } from '../lib/audit.js';
 import { HttpError } from '../lib/http.js';
 import { sendEmail } from '../lib/mailer.js';
+import { PAID_OK } from '../lib/plans.js';
 
 let client = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY, { maxNetworkRetries: 2, timeout: 20_000 }) : null;
 
@@ -49,11 +50,24 @@ async function ensureCustomer(org, admin) {
   return rows[0].stripe_customer_id;
 }
 
+/** Subscription statuses that still exist and may still charge or be paid. */
+const OPEN_STATUSES = ['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'];
+
+/** Every subscription of this customer that is not finished. */
+async function openSubscriptions(customer) {
+  const { data } = await stripe().subscriptions.list({ customer, status: 'all', limit: 20 });
+  return data.filter((s) => OPEN_STATUSES.includes(s.status));
+}
+
 /** A Stripe Checkout page for subscribing to `plan`. Unused trial days carry over. */
 export async function createCheckout(org, admin, plan) {
   const price = priceForPlan()[plan];
   if (!price) throw new HttpError(503, `The ${plan} plan is not available for online purchase yet.`, 'BILLING_UNAVAILABLE');
   const customer = await ensureCustomer(org, admin);
+  // Stripe is the source of truth: a subscription paid in another tab may not have reached the webhook yet.
+  if ((await openSubscriptions(customer)).length) {
+    throw new HttpError(409, 'You already have a subscription. Use "Manage subscription" to change plan or update payment.', 'CONFLICT');
+  }
 
   const subscriptionData = { metadata: { org_id: org.id } };
   // Stripe needs a trial end at least 48 hours away; with less left, billing starts now.
@@ -86,14 +100,16 @@ export async function createPortal(org) {
   return session.url;
 }
 
-/** Cancel straight away (used when an organisation deletes itself). */
-export async function cancelSubscriptionNow(subscriptionId) {
-  try {
-    await stripe().subscriptions.cancel(subscriptionId, { prorate: false });
-  } catch (err) {
-    // Already cancelled: nothing left to stop.
-    if (err?.code === 'resource_missing' || /canceled/.test(err?.message ?? '')) return;
-    throw err;
+/** Cancel every open subscription straight away (used when an organisation deletes itself). */
+export async function cancelAllSubscriptions(customer) {
+  for (const sub of await openSubscriptions(customer)) {
+    try {
+      await stripe().subscriptions.cancel(sub.id, { prorate: false });
+    } catch (err) {
+      // Already cancelled: nothing left to stop.
+      if (err?.code === 'resource_missing' || /canceled/.test(err?.message ?? '')) continue;
+      throw err;
+    }
   }
 }
 
@@ -112,13 +128,14 @@ export async function syncSubscription(subscriptionId) {
     console.warn(`stripe: subscription ${sub.id} belongs to an unknown customer`);
     return null;
   }
-  // An organisation has one subscription. A stale event about an older one must not overwrite the current one.
+  // An organisation has one subscription. Events about another one only take over
+  // when the current one is no longer paying (e.g. a new subscription after a cancellation).
   const current = org.stripe_subscription_id;
-  const isLive = !['canceled', 'incomplete_expired'].includes(sub.status);
-  if (current && current !== sub.id && !isLive) return org;
+  if (current && current !== sub.id && (PAID_OK.has(org.subscription_status) || !PAID_OK.has(sub.status))) return org;
 
   const items = sub.items?.data ?? [];
   const plan = items.map((i) => planForPrice(i.price?.id)).find(Boolean);
+  if (!plan) console.warn(`stripe: subscription ${sub.id} uses a price not set in STRIPE_PRICE_*; plan left unchanged`);
   const periodEnd = Math.max(0, ...items.map((i) => i.current_period_end ?? 0));
 
   const { rows } = await query(
@@ -127,7 +144,8 @@ export async function syncSubscription(subscriptionId) {
             plan = CASE WHEN plan IN ('demo', 'enterprise') THEN plan ELSE COALESCE($4, plan) END,
             current_period_end = $5, cancel_at_period_end = $6
       WHERE id = $1 RETURNING *`,
-    [org.id, sub.id, sub.status, isLive ? plan : null, periodEnd ? new Date(periodEnd * 1000) : null, Boolean(sub.cancel_at_period_end || sub.cancel_at)],
+    // The plan only changes once the subscription is actually paying.
+    [org.id, sub.id, sub.status, PAID_OK.has(sub.status) ? plan : null, periodEnd ? new Date(periodEnd * 1000) : null, Boolean(sub.cancel_at_period_end || sub.cancel_at)],
   );
   return rows[0];
 }
@@ -210,9 +228,18 @@ export async function processWebhook(rawBody, signature) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, 'Invalid Stripe signature', 'BAD_SIGNATURE');
   }
-  const { rows } = await query('SELECT 1 FROM falconmed_v4.stripe_events WHERE id = $1', [event.id]);
-  if (rows.length) return false;
-  await handleEvent(event);
-  await query('INSERT INTO falconmed_v4.stripe_events (id, type) VALUES ($1, $2) ON CONFLICT DO NOTHING', [event.id, event.type]);
+  // Claim the event first, so two deliveries arriving together are handled once.
+  const { rows } = await query(
+    'INSERT INTO falconmed_v4.stripe_events (id, type) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id',
+    [event.id, event.type],
+  );
+  if (!rows.length) return false;
+  try {
+    await handleEvent(event);
+  } catch (err) {
+    // Let Stripe's retry handle it again.
+    await query('DELETE FROM falconmed_v4.stripe_events WHERE id = $1', [event.id]).catch(() => {});
+    throw err;
+  }
   return true;
 }
