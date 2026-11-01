@@ -2,7 +2,8 @@
 
 This file is for whoever finishes the project next, and for their coding agent. It says what was done, what was checked, and what is still needed, in order. Read it top to bottom before changing anything.
 
-- Branch: `saas-hardening` (merge into `main` through the pull request).
+- Branch: `saas-hardening`, open as **pull request #1**: https://github.com/mohammadph222-web/falconmed-elite-v4/pull/1. CI passed (API tests on Postgres 16, dashboard build, Vercel preview). **Not merged yet**: the owner wants it reviewed first.
+- Not done on purpose: live tests against Stripe and Resend (no accounts set up yet). See §3B.
 - State: 89/89 API tests pass against a real PostgreSQL, including on an empty database. The dashboard builds with 0 npm vulnerabilities. Every new flow was checked in a real browser.
 - Last updated: 2 November 2026.
 
@@ -74,7 +75,7 @@ Migrations run automatically when the server starts. They only add things and ne
 
 ### A. Needs a person: these cannot be done in code
 
-1. **Merge the pull request** for `saas-hardening` after CI passes.
+1. **Review and merge PR #1.** Before merging, set the new production env vars on Render (`APP_URL`, `DATA_ENCRYPTION_KEY`, and the email and Stripe ones as they become available). Otherwise the API refuses to start after deploy. Merging `main` also deploys the dashboard to Vercel production. Everyone is signed out once after the deploy.
 2. **Legal review.** `/terms` and `/privacy` (`frontend/src/pages/Legal.jsx`) are a draft that describes what the software does. They must be reviewed by a lawyer for the UAE (PDPL, plus DHA/DOH rules if serving regulated facilities). Then set `VITE_LEGAL_ENTITY`, `VITE_LEGAL_EMAIL` and `VITE_LEGAL_UPDATED`.
 3. **Stripe**. Follow `docs/BILLING.md` step by step, in a Stripe sandbox first and then in live mode:
    - one Product per plan, each with a recurring Price;
