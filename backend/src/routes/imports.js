@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler, notFound, parse } from '../lib/http.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireEntitlement, requireRole } from '../middleware/auth.js';
 import { analyse, commitImport, deleteBatch, listBatches } from '../services/importer.js';
 
 const router = Router();
-router.use(requireAuth, requireRole('admin', 'manager'));
+router.use(requireAuth, requireRole('admin', 'manager'), requireEntitlement);
 
 const body = z.object({
   csv: z.string().min(1, 'The file is empty').max(8 * 1024 * 1024, 'The file is larger than 8 MB'),

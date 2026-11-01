@@ -24,7 +24,7 @@ const admin = () => as(tokens.admin);
 before(async () => {
   await seed({ days: 2, reset: true, log: () => {} });
   // A real (non-demo) organisation, so editing rules can be tested without demo protection.
-  await pool.query(`INSERT INTO falconmed_v4.organizations (id, name, slug, plan) VALUES ('org_test', 'Test Pharmacies', 'test-pharmacies', 'trial')`);
+  await pool.query(`INSERT INTO falconmed_v4.organizations (id, name, slug, plan, trial_ends_at) VALUES ('org_test', 'Test Pharmacies', 'test-pharmacies', 'trial', now() + interval '14 days')`);
   await pool.query(
     `INSERT INTO falconmed_v4.users (id, org_id, email, full_name, role, password_hash)
      VALUES ('u_test_admin', 'org_test', 'owner@test.example', 'Test Owner', 'admin', $1)`,
@@ -154,7 +154,8 @@ test('promote, move and deactivate a team member', async () => {
 
 test('a pharmacist serving a patient cannot be moved until the ticket is closed', async () => {
   const t = (await login('nour@test.example', 'Counter1Strong')).body.data.token;
-  await request(app).post('/api/queue/tickets').set('X-Queue-Key', env.QUEUE_API_KEY).send({ branchId });
+  const key = (await admin().post('/api/org/api-keys', { name: 'Kiosk' })).body.data.secret;
+  assert.equal((await request(app).post('/api/queue/tickets').set('X-Queue-Key', key).send({ branchId })).status, 201);
   const called = await as(t).post('/api/queue/call-next');
   assert.ok(called.body.data);
   const move = await admin().patch(`/api/org/users/${pharmacist.id}`, { counterNo: 3 });

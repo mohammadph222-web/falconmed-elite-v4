@@ -39,16 +39,18 @@ export function errorHandler(isProd) {
 
     // PostgreSQL constraint violations → client errors, not 500s.
     if (err?.code === '23505') err = conflict('That record conflicts with an existing one');
+    if (err?.code === '23503') err = badRequest('That refers to a record that does not exist');
     if (err?.code === '23514' || err?.code === '22P02' || err?.code === '22007') err = badRequest('Invalid data');
 
     const status = err instanceof HttpError ? err.status : 500;
-    if (status >= 500) console.error(`[${req.method} ${req.originalUrl}]`, err);
+    if (status >= 500) console.error(`[${req.id ?? '-'}] ${req.method} ${req.originalUrl}`, err);
 
     res.status(status).json({
       success: false,
       error: {
         code: err.code && typeof err.code === 'string' && !/^\d/.test(err.code) ? err.code : status >= 500 ? 'INTERNAL' : 'ERROR',
         message: status >= 500 && isProd ? 'Something went wrong. Please try again.' : err.message,
+        ...(status >= 500 && req.id ? { requestId: req.id } : {}),
         ...(err.details ? { details: err.details } : {}),
       },
     });
