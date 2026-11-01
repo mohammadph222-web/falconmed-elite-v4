@@ -6,12 +6,8 @@ import { ROLE_LABEL } from '../lib/format';
 import { PageHeader, Panel } from '../components/ui';
 import { Spinner } from '../components/States';
 import { Field, FormError } from '../components/Modal';
+import { PASSWORD_RULES as RULES } from '../lib/password';
 
-const RULES = [
-  [(p) => p.length >= 8, 'At least 8 characters'],
-  [(p) => /[A-Za-z]/.test(p), 'A letter'],
-  [(p) => /\d/.test(p), 'A number'],
-];
 
 function PasswordForm({ onDone, submitLabel = 'Change password', currentLabel = 'Current password' }) {
   const { replaceSession } = useAuth();

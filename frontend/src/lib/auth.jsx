@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, setUnauthorizedHandler, tokenStore } from './api';
+import { api, setPaymentRequiredHandler, setUnauthorizedHandler, tokenStore } from './api';
 
 const AuthContext = createContext(null);
 
@@ -56,6 +56,11 @@ export function AuthProvider({ children }) {
     const r = await api('/auth/me');
     setUser(r.data);
   }, []);
+
+  // The trial or subscription ended while the app was open: re-read the user so the app locks.
+  useEffect(() => {
+    setPaymentRequiredHandler(() => refreshUser().catch(() => {}));
+  }, [refreshUser]);
 
   const value = useMemo(
     () => ({ user, status, login, logout, retry, replaceSession, refreshUser }),

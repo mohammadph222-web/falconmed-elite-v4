@@ -111,7 +111,7 @@ export default function Login() {
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-sm animate-rise">
           <h2 className="font-display text-2xl font-semibold text-white">Sign in</h2>
-          <p className="mt-1 text-sm text-mist-400">Use your work account or a demo role below.</p>
+          <p className="mt-1 text-sm text-mist-400">{demo.length ? 'Use your work account or a demo role below.' : 'Use your work account.'}</p>
 
           <form onSubmit={submit} className="mt-8 space-y-4">
             <label className="block">
@@ -130,7 +130,12 @@ export default function Login() {
               </div>
             </label>
             <label className="block">
-              <span className="label">Password</span>
+              <span className="flex items-baseline justify-between">
+                <span className="label">Password</span>
+                <Link to="/forgot-password" className="text-xs font-medium text-brand-300 hover:text-brand-200">
+                  Forgot password?
+                </Link>
+              </span>
               <div className="relative mt-1.5">
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-mist-500" aria-hidden />
                 <input
@@ -165,6 +170,7 @@ export default function Login() {
             · free for 14 days
           </p>
 
+          {(demo.length > 0 || waking) && (
           <div className="mt-10">
             <div className="label mb-3 flex items-center gap-2">
               <span className="h-px flex-1 bg-ink-700" /> Demo access <span className="h-px flex-1 bg-ink-700" />
@@ -206,6 +212,10 @@ export default function Login() {
               ))}
             </div>
           </div>
+          )}
+          <p className="mt-10 text-center text-xs text-mist-500">
+            <Link to="/terms" className="hover:text-mist-300">Terms</Link> · <Link to="/privacy" className="hover:text-mist-300">Privacy</Link>
+          </p>
         </div>
       </div>
     </div>
