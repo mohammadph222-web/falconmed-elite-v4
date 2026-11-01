@@ -6,6 +6,8 @@ FalconMed Elite measures how long patients wait and how they are served across a
 
 It is a **multi-tenant SaaS**: pharmacy groups sign up, start a free trial and subscribe through Stripe, and each organisation only ever sees its own branches, staff, tickets and imports. The demo runs two fictional organisations side by side to prove it. See [docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md), [docs/SECURITY.md](docs/SECURITY.md), [docs/BILLING.md](docs/BILLING.md) and the [launch checklist](docs/LAUNCH_CHECKLIST.md).
 
+> **Picking up this project?** Start with [HANDOFF.md](HANDOFF.md): what is done, what is still needed, and the rules for changing the code.
+
 > Built by a hospital pharmacist with 18 years of outpatient and inpatient practice in the UAE, to show how operational pharmacy knowledge translates into a working informatics system.
 > This repository runs on a **simulated** network: no real patient data, no patient names.
 
