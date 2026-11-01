@@ -28,6 +28,9 @@ const schema = z
     // Show the demo accounts on the login screen.
     DEMO_LOGIN: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
 
+    // Encrypts two-factor secrets at rest. Required in production; never change it once set.
+    DATA_ENCRYPTION_KEY: optional,
+
     // Email (Resend). Without a key, emails are written to the log instead.
     RESEND_API_KEY: optional,
     EMAIL_FROM: z.string().default('FalconMed Elite <no-reply@falconmed.app>'),
@@ -46,6 +49,9 @@ const schema = z
     }
     if (e.QUEUE_API_KEY && (e.QUEUE_API_KEY.length < 24 || weak(e.QUEUE_API_KEY))) {
       ctx.addIssue({ code: 'custom', path: ['QUEUE_API_KEY'], message: 'use at least 24 random characters in production, or remove it' });
+    }
+    if (!e.DATA_ENCRYPTION_KEY || e.DATA_ENCRYPTION_KEY.length < 32) {
+      ctx.addIssue({ code: 'custom', path: ['DATA_ENCRYPTION_KEY'], message: 'set at least 32 random characters in production (and never change it)' });
     }
     if (e.STRIPE_SECRET_KEY && !e.STRIPE_WEBHOOK_SECRET) {
       ctx.addIssue({ code: 'custom', path: ['STRIPE_WEBHOOK_SECRET'], message: 'is required when STRIPE_SECRET_KEY is set' });

@@ -7,6 +7,7 @@ import { PageHeader, Panel } from '../components/ui';
 import { Spinner } from '../components/States';
 import { Field, FormError } from '../components/Modal';
 import { PASSWORD_RULES as RULES } from '../lib/password';
+import { TwoFactorSettings } from '../components/TwoFactor';
 
 
 function PasswordForm({ onDone, submitLabel = 'Change password', currentLabel = 'Current password' }) {
@@ -123,6 +124,9 @@ export default function AccountPage() {
           ) : (
             <PasswordForm />
           )}
+        </Panel>
+        <Panel title="Two-factor sign-in" subtitle="A code from your phone at each sign-in" className="lg:col-span-2">
+          <TwoFactorSettings />
         </Panel>
       </div>
     </>

@@ -177,6 +177,15 @@ const ACTION_LABEL = {
   'billing.updated': 'Subscription changed',
   'billing.deleted': 'Subscription ended',
   'billing.payment_failed': 'Payment failed',
+  'auth.2fa_enabled': 'Turned on two-factor sign-in',
+  'auth.2fa_disabled': 'Turned off two-factor sign-in',
+  'auth.2fa_failed': 'Wrong two-factor code',
+  'auth.recovery_code_used': 'Signed in with a recovery code',
+  'auth.recovery_codes_renewed': 'Created new recovery codes',
+  'user.2fa_reset': 'Reset a team member’s two-factor sign-in',
+  'org.require_admin_2fa_on': 'Required two-factor sign-in for admins',
+  'org.require_admin_2fa_off': 'Stopped requiring two-factor sign-in for admins',
+  'org.delete': 'Deleted the organisation',
 };
 
 export function AuditTab() {
@@ -205,7 +214,7 @@ export function AuditTab() {
                 <tr key={a.id} className="border-b border-ink-700/40 last:border-0">
                   <td className="whitespace-nowrap px-5 py-2.5 text-mist-400">{fmtWhen(a.createdAt)}</td>
                   <td className="px-3 py-2.5 text-white">{a.actor?.name ?? <span className="text-mist-500">System</span>}</td>
-                  <td className={a.action === 'auth.login_failed' || a.action === 'billing.payment_failed' ? 'px-3 py-2.5 text-warn-300' : 'px-3 py-2.5 text-mist-200'}>
+                  <td className={['auth.login_failed', 'auth.2fa_failed', 'billing.payment_failed'].includes(a.action) ? 'px-3 py-2.5 text-warn-300' : 'px-3 py-2.5 text-mist-200'}>
                     {ACTION_LABEL[a.action] ?? a.action}
                   </td>
                   <td className="px-5 py-2.5 font-mono text-xs text-mist-500">{a.ip ?? '—'}</td>

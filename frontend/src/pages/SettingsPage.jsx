@@ -25,6 +25,7 @@ const ProtectedMark = () => (
 
 // ── team ─────────────────────────────────────────────────────────
 function MemberForm({ member, branches, team, onSaved, onClose }) {
+  const { user: me } = useAuth();
   const editing = Boolean(member);
   const [form, setForm] = useState({
     fullName: member?.name ?? '',
@@ -64,6 +65,12 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
     onSaved();
     setTemp({ name: member.name, email: member.email, password: r.data.temporaryPassword });
   });
+  const reset2fa = useSubmit(async () => {
+    if (!window.confirm(`Turn off two-factor sign-in for ${member.name}? Do this only if they lost their phone and recovery codes. They are signed out and can set it up again.`)) return;
+    await api(`/org/users/${member.id}/reset-2fa`, { method: 'POST' });
+    onSaved();
+    onClose();
+  });
   const toggle = useSubmit(async () => {
     await api(`/org/users/${member.id}`, { method: 'PATCH', body: { isActive: !member.isActive } });
     onSaved();
@@ -79,7 +86,7 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
   }
 
   const locked = member?.demoProtected;
-  const error = save.error || reset.error || toggle.error;
+  const error = save.error || reset.error || reset2fa.error || toggle.error;
   return (
     <Modal
       title={editing ? member.name : 'Add a team member'}
@@ -92,6 +99,11 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
               {member.isActive && (
                 <button type="button" className="btn-ghost px-3" onClick={reset.run} disabled={reset.busy}>
                   <KeyRound className="h-4 w-4" /> Reset password
+                </button>
+              )}
+              {member.twoFactorEnabled && member.id !== me?.id && (
+                <button type="button" className="btn-ghost px-3" onClick={reset2fa.run} disabled={reset2fa.busy}>
+                  <ShieldCheck className="h-4 w-4" /> Reset two-factor
                 </button>
               )}
               <button type="button" className={member.isActive ? 'btn-warn px-3' : 'btn-ghost px-3'} onClick={toggle.run} disabled={toggle.busy}>
@@ -228,7 +240,8 @@ function TeamTab({ team, branches, reload }) {
                     {u.role === 'admin' ? <span className="text-mist-500">All branches</span> : `${u.branchName ?? '—'}${u.counterNo ? ` · ${u.counterNo}` : ''}`}
                   </td>
                   <td className="px-3 py-3">
-                    {!u.isActive ? <Badge>Inactive</Badge> : u.mustChangePassword ? <Badge tone="warn">Invited</Badge> : <Badge tone="ok">Active</Badge>}
+                    {!u.isActive ? <Badge>Inactive</Badge> : u.mustChangePassword ? <Badge tone="warn">Invited</Badge> : <Badge tone="ok">Active</Badge>}{' '}
+                    {u.twoFactorEnabled && <Badge tone="brand">2FA</Badge>}
                   </td>
                   <td className="px-5 py-3 text-right">
                     <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => setEditing(u)}>
@@ -356,7 +369,11 @@ function BranchesTab({ branches, reload }) {
 
 // ── organisation ─────────────────────────────────────────────────
 function OrganisationTab({ org, reload }) {
-  const { refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const require2fa = useSubmit(async (on) => {
+    await api('/org', { method: 'PATCH', body: { requireAdmin2fa: on } });
+    await reload();
+  });
   const [name, setName] = useState(org.name);
   const [saved, setSaved] = useState(false);
   const save = useSubmit(async () => {
@@ -398,6 +415,27 @@ function OrganisationTab({ org, reload }) {
           ))}
         </dl>
       </Panel>
+      {!org.demoProtected && (
+        <Panel title="Sign-in security" className="lg:col-span-2">
+          <label className="flex items-start gap-3 text-sm text-mist-200">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-[#2563a8]"
+              checked={org.requireAdmin2fa}
+              disabled={require2fa.busy || (!org.requireAdmin2fa && !user.twoFactorEnabled)}
+              onChange={(e) => require2fa.run(e.target.checked)}
+            />
+            <span>
+              <span className="font-semibold text-white">Require two-factor sign-in for admins.</span> Admins without it are asked to set it up
+              at their next sign-in.
+              {!user.twoFactorEnabled && <span className="block text-xs text-mist-500">Turn it on for your own account first, under My account.</span>}
+            </span>
+          </label>
+          <div className="mt-2">
+            <FormError error={require2fa.error} />
+          </div>
+        </Panel>
+      )}
       <DataPanel org={org} />
     </div>
   );

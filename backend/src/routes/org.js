@@ -3,7 +3,7 @@
  * Everything here is limited to the admin's own organisation.
  *
  *   GET    /api/org                         organisation + counts
- *   PATCH  /api/org                         { name }
+ *   PATCH  /api/org                         { name?, requireAdmin2fa? }
  *   GET    /api/org/branches                all branches, including inactive
  *   POST   /api/org/branches                { name, city, counters }
  *   PATCH  /api/org/branches/:id            { name?, city?, counters?, isActive? }
@@ -11,6 +11,7 @@
  *   POST   /api/org/users                   { fullName, email, role, branchId?, counterNo? } → temporary password
  *   PATCH  /api/org/users/:id               { fullName?, role?, branchId?, counterNo?, isActive? }
  *   POST   /api/org/users/:id/reset-password → temporary password
+ *   POST   /api/org/users/:id/reset-2fa     turn off a member's two-factor sign-in
  *   GET    /api/org/api-keys                queue-machine keys
  *   POST   /api/org/api-keys                { name, branchId? } → the key, shown once
  *   DELETE /api/org/api-keys/:id            revoke a key
@@ -62,6 +63,7 @@ const shapeUser = (u) => ({
   counterNo: u.counter_no,
   isActive: u.is_active,
   mustChangePassword: u.must_change_password,
+  twoFactorEnabled: Boolean(u.totp_enabled_at),
   demoProtected: u.is_demo_fixture,
   createdAt: u.created_at,
 });
@@ -133,7 +135,7 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { rows } = await query(
-      `SELECT o.id, o.name, o.slug, o.plan, o.created_at, o.trial_ends_at,
+      `SELECT o.id, o.name, o.slug, o.plan, o.created_at, o.trial_ends_at, o.require_admin_2fa,
               (SELECT COUNT(*)::int FROM falconmed_v4.branches b WHERE b.org_id = o.id AND b.is_active) AS branches,
               (SELECT COUNT(*)::int FROM falconmed_v4.users u WHERE u.org_id = o.id AND u.is_active) AS team,
               (SELECT COUNT(*)::int FROM falconmed_v4.users u WHERE u.org_id = o.id AND u.is_active AND u.role <> 'admin') AS staff,
@@ -152,6 +154,7 @@ router.get(
         plan: o.plan,
         createdAt: o.created_at,
         trialEndsAt: o.trial_ends_at,
+        requireAdmin2fa: o.require_admin_2fa,
         activeBranches: o.branches,
         activeTeam: o.team,
         demoProtected: o.plan === 'demo',
@@ -165,12 +168,18 @@ router.get(
 router.patch(
   '/',
   asyncHandler(async (req, res) => {
-    const { name } = parse(z.object({ name: text(80) }), req.body);
+    const body = parse(z.object({ name: text(80).optional(), requireAdmin2fa: z.boolean().optional() }), req.body);
     const { rows: org } = await query('SELECT plan FROM falconmed_v4.organizations WHERE id = $1', [req.user.org_id]);
-    if (org[0].plan === 'demo') throw forbidden('The demo organisation keeps its name so the demo stays the same for everyone.');
-    await query('UPDATE falconmed_v4.organizations SET name = $2 WHERE id = $1', [req.user.org_id, name]);
-    await audit(req, 'org.rename', { meta: { name } });
-    res.json({ success: true, data: { name } });
+    if (org[0].plan === 'demo') throw forbidden('The demo organisation keeps its settings so the demo stays the same for everyone.');
+    // Requiring it is only allowed for an admin who has it on, so nobody locks the organisation out by accident.
+    if (body.requireAdmin2fa && !req.user.totp_enabled_at) throw badRequest('Turn on two-factor sign-in for your own account first (My account).');
+    await query(
+      'UPDATE falconmed_v4.organizations SET name = COALESCE($2, name), require_admin_2fa = COALESCE($3, require_admin_2fa) WHERE id = $1',
+      [req.user.org_id, body.name ?? null, body.requireAdmin2fa ?? null],
+    );
+    if (body.name) await audit(req, 'org.rename', { meta: { name: body.name } });
+    if (body.requireAdmin2fa !== undefined) await audit(req, body.requireAdmin2fa ? 'org.require_admin_2fa_on' : 'org.require_admin_2fa_off');
+    res.json({ success: true, data: body });
   }),
 );
 
@@ -405,6 +414,24 @@ router.post(
   }),
 );
 
+
+/** For a team member who lost their phone and recovery codes: they sign in with their password and can set it up again. */
+router.post(
+  '/users/:id/reset-2fa',
+  asyncHandler(async (req, res) => {
+    const user = await getUser({ query }, req.user.org_id, req.params.id);
+    if (user.is_demo_fixture) throw forbidden(DEMO_LOCKED);
+    if (user.id === req.user.id) throw badRequest('Use My account to change your own two-factor sign-in');
+    await query(
+      `UPDATE falconmed_v4.users SET totp_secret_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL, recovery_codes = '{}',
+              token_version = token_version + 1
+        WHERE id = $1`,
+      [user.id],
+    );
+    await audit(req, 'user.2fa_reset', { target: user.id });
+    res.json({ success: true, data: { twoFactorEnabled: false } });
+  }),
+);
 
 // ── queue API keys ───────────────────────────────────────────────
 const shapeKey = (k) => ({

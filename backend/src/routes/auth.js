@@ -1,15 +1,18 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { query, withTransaction } from '../config/db.js';
 import { env } from '../config/env.js';
 import { audit } from '../lib/audit.js';
+import { PgStore } from '../lib/rateLimitStore.js';
 import { asyncHandler, badRequest, conflict, forbidden, HttpError, parse, unauthorized } from '../lib/http.js';
 import { sendEmail } from '../lib/mailer.js';
 import { BCRYPT_COST, hashPassword, newPasswordSchema } from '../lib/passwords.js';
 import { hashSecret, newSecret } from '../lib/tokens.js';
+import { decrypt, encrypt, matchStep, newRecoveryCodes, newTotpSecret, otpauthUrl, recoveryHash } from '../lib/totp.js';
 import { loadUser, publicUser, requireAuth, signToken } from '../middleware/auth.js';
 
 const router = Router();
@@ -18,6 +21,7 @@ const inTest = () => env.NODE_ENV === 'test';
 
 // Slow down password guessing: 10 failed attempts per 15 minutes per IP…
 const loginLimiter = rateLimit({
+  store: new PgStore('login-ip'),
   windowMs: 15 * 60 * 1000,
   limit: 10,
   standardHeaders: 'draft-7',
@@ -32,6 +36,7 @@ const LOCK_AFTER = 10;
 const LOCK_MINUTES = 15;
 const LOCKED_MESSAGE = `Too many failed attempts for this account. Try again in ${LOCK_MINUTES} minutes, or reset your password.`;
 const emailLimiter = rateLimit({
+  store: new PgStore('login-email'),
   windowMs: LOCK_MINUTES * 60 * 1000,
   limit: LOCK_AFTER,
   standardHeaders: false,
@@ -43,12 +48,26 @@ const emailLimiter = rateLimit({
 
 // Emails sent on request (reset links): a few per hour per IP.
 const emailSendLimiter = rateLimit({
+  store: new PgStore('email-send'),
   windowMs: 60 * 60 * 1000,
   limit: 5,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: inTest,
   message: limited('Too many requests. Try again in an hour.'),
+});
+
+// Signed-in account changes (two-factor set-up and removal): counted per person, not per IP,
+// so one person's typos never use up a whole pharmacy's shared connection.
+const accountLimiter = rateLimit({
+  store: new PgStore('account'),
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `user:${req.user.id}`,
+  message: limited('Too many attempts. Try again in 15 minutes.'),
 });
 
 const loginSchema = z.object({
@@ -69,14 +88,13 @@ router.post(
     const { rows } = await query(
       `SELECT u.*, (u.is_active AND o.is_active AND o.deleted_at IS NULL) AS can_sign_in,
               u.locked_until > now() AS is_locked,
-              (u.last_failed_login_at IS NULL OR u.last_failed_login_at < now() - make_interval(mins => $2)) AS failures_expired,
               b.name AS branch_name, o.name AS org_name, o.plan AS org_plan, o.trial_ends_at,
               o.subscription_status, o.current_period_end, o.cancel_at_period_end
          FROM falconmed_v4.users u
          JOIN falconmed_v4.organizations o ON o.id = u.org_id
     LEFT JOIN falconmed_v4.branches b ON b.id = u.branch_id
         WHERE u.email = $1`,
-      [email, LOCK_MINUTES],
+      [email],
     );
     const user = rows[0];
     const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH);
@@ -87,32 +105,177 @@ router.post(
     if (user?.is_locked && !(ok && familiar)) throw new HttpError(429, LOCKED_MESSAGE, 'RATE_LIMITED');
 
     if (!user || !ok || !user.can_sign_in) {
-      if (user) {
-        // Failures older than the lock window are forgotten, so occasional typos never add up to a lock.
-        await query(
-          `UPDATE falconmed_v4.users
-              SET failed_logins = CASE WHEN $4 THEN 1 WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END,
-                  locked_until  = CASE WHEN NOT $4 AND failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END,
-                  last_failed_login_at = now()
-            WHERE id = $1`,
-          [user.id, LOCK_AFTER, LOCK_MINUTES, user.failures_expired],
-        );
-        await audit(req, 'auth.login_failed', { orgId: user.org_id, actorId: user.id });
-      }
+      if (user) await recordFailure(req, user);
       throw unauthorized('Incorrect email or password');
     }
 
     // Hashes from before v5 used a lower bcrypt cost: upgrade them while the password is at hand.
-    const rehash = bcrypt.getRounds(user.password_hash) < BCRYPT_COST ? await hashPassword(password) : null;
-    await query(
-      `UPDATE falconmed_v4.users
-          SET failed_logins = 0, locked_until = NULL, last_failed_login_at = NULL, last_login_at = now(), last_login_ip = $2,
-              password_hash = COALESCE($3, password_hash)
-        WHERE id = $1`,
-      [user.id, req.ip, rehash],
+    if (bcrypt.getRounds(user.password_hash) < BCRYPT_COST) {
+      await query('UPDATE falconmed_v4.users SET password_hash = $2 WHERE id = $1', [user.id, await hashPassword(password)]);
+    }
+    // With two-factor sign-in on, the password alone only earns a short-lived challenge.
+    if (user.totp_enabled_at) return res.json({ success: true, data: mfaChallenge(user) });
+    await completeSignIn(req, res, user);
+  }),
+);
+
+/** A failed password or code. Failures older than the lock window are forgotten, so occasional typos never add up to a lock. */
+async function recordFailure(req, user, action = 'auth.login_failed') {
+  await query(
+    `UPDATE falconmed_v4.users
+        SET failed_logins = CASE WHEN last_failed_login_at IS NULL OR last_failed_login_at < now() - make_interval(mins => $3) THEN 1
+                                 WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END,
+            locked_until  = CASE WHEN (last_failed_login_at IS NOT NULL AND last_failed_login_at >= now() - make_interval(mins => $3))
+                                      AND failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END,
+            last_failed_login_at = now()
+      WHERE id = $1`,
+    [user.id, LOCK_AFTER, LOCK_MINUTES],
+  );
+  await audit(req, action, { orgId: user.org_id, actorId: user.id });
+}
+
+async function completeSignIn(req, res, user) {
+  await query(
+    `UPDATE falconmed_v4.users
+        SET failed_logins = 0, locked_until = NULL, last_failed_login_at = NULL, last_login_at = now(), last_login_ip = $2
+      WHERE id = $1`,
+    [user.id, req.ip],
+  );
+  await audit(req, 'auth.login', { orgId: user.org_id, actorId: user.id });
+  const full = await loadUser(user.id);
+  res.json({ success: true, data: { token: signToken(full), user: publicUser(full) } });
+}
+
+// ── two-factor sign-in (authenticator app) ───────────────────────
+const MFA_JWT = { issuer: 'falconmed-api', audience: 'falconmed-mfa' };
+
+/** Five minutes to enter the second factor. Bound to the token version, so a password change voids it. */
+const mfaChallenge = (user) => ({
+  mfaRequired: true,
+  mfaToken: jwt.sign({ tv: user.token_version }, env.JWT_SECRET, { ...MFA_JWT, subject: user.id, expiresIn: '5m', algorithm: 'HS256' }),
+});
+const codeSchema = z.string().trim().max(20).optional();
+
+/** Check an authenticator code (never the same one twice) or use up a recovery code. Returns true on success. */
+async function checkSecondFactor(user, { code, recoveryCode }) {
+  if (code && user.totp_secret_enc) {
+    const step = matchStep(decrypt(user.totp_secret_enc), code);
+    if (step === null) return false;
+    // Atomic: a code that was already used (or an older one) is refused, even by two requests at once.
+    const { rowCount } = await query(
+      `UPDATE falconmed_v4.users SET totp_last_step = $2 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)`,
+      [user.id, step],
     );
-    await audit(req, 'auth.login', { orgId: user.org_id, actorId: user.id });
-    res.json({ success: true, data: { token: signToken(user), user: publicUser(user) } });
+    return rowCount === 1;
+  }
+  if (recoveryCode) {
+    const { rowCount } = await query(
+      `UPDATE falconmed_v4.users SET recovery_codes = array_remove(recovery_codes, $2) WHERE id = $1 AND $2 = ANY(recovery_codes)`,
+      [user.id, recoveryHash(recoveryCode)],
+    );
+    return rowCount === 1;
+  }
+  return false;
+}
+
+/** POST /api/auth/2fa/verify — { mfaToken, code | recoveryCode } → session */
+router.post(
+  '/2fa/verify',
+  loginLimiter,
+  asyncHandler(async (req, res) => {
+    const body = parse(z.object({ mfaToken: z.string().min(10).max(2000), code: codeSchema, recoveryCode: codeSchema }), req.body);
+    let payload;
+    try {
+      payload = jwt.verify(body.mfaToken, env.JWT_SECRET, { ...MFA_JWT, algorithms: ['HS256'] });
+    } catch {
+      throw unauthorized('The sign-in took too long. Please start again.');
+    }
+    const { rows } = await query(
+      `SELECT u.*, u.locked_until > now() AS is_locked, (u.is_active AND o.is_active AND o.deleted_at IS NULL) AS can_sign_in
+         FROM falconmed_v4.users u JOIN falconmed_v4.organizations o ON o.id = u.org_id WHERE u.id = $1`,
+      [payload.sub],
+    );
+    const user = rows[0];
+    if (!user || !user.can_sign_in || user.token_version !== payload.tv || !user.totp_enabled_at) throw unauthorized('Please sign in again.');
+    // Same rule as the password step: a lock keeps strangers out, not the owner on their usual connection.
+    if (user.is_locked && user.last_login_ip !== req.ip) throw new HttpError(429, LOCKED_MESSAGE, 'RATE_LIMITED');
+    if (!(await checkSecondFactor(user, body))) {
+      await recordFailure(req, user, 'auth.2fa_failed');
+      throw unauthorized('That code is not correct');
+    }
+    if (body.recoveryCode) await audit(req, 'auth.recovery_code_used', { orgId: user.org_id, actorId: user.id });
+    await completeSignIn(req, res, user);
+  }),
+);
+
+/** POST /api/auth/2fa/setup — start enrolment: a new secret to add to the authenticator app. */
+router.post(
+  '/2fa/setup',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (req.user.is_demo_fixture) throw forbidden('Demo accounts are shared, so they cannot turn on two-factor sign-in.');
+    if (req.user.totp_enabled_at) throw conflict('Two-factor sign-in is already on.');
+    const secret = newTotpSecret();
+    await query('UPDATE falconmed_v4.users SET totp_secret_enc = $2, totp_last_step = NULL WHERE id = $1', [req.user.id, encrypt(secret)]);
+    res.json({ success: true, data: { secret, otpauthUrl: otpauthUrl({ secret, email: req.user.email }) } });
+  }),
+);
+
+/** POST /api/auth/2fa/enable — { code } from the app → on, with ten recovery codes shown once. */
+router.post(
+  '/2fa/enable',
+  requireAuth,
+  accountLimiter,
+  asyncHandler(async (req, res) => {
+    const { code } = parse(z.object({ code: z.string().trim().max(10) }), req.body);
+    const { rows } = await query('SELECT * FROM falconmed_v4.users WHERE id = $1', [req.user.id]);
+    const user = rows[0];
+    if (user.totp_enabled_at) throw conflict('Two-factor sign-in is already on.');
+    if (!user.totp_secret_enc) throw badRequest('Start the set-up again.');
+    if (!(await checkSecondFactor(user, { code }))) throw badRequest('That code is not correct. Check the time on your phone and try again.');
+    const { codes, hashes } = newRecoveryCodes();
+    await query('UPDATE falconmed_v4.users SET totp_enabled_at = now(), recovery_codes = $2 WHERE id = $1', [user.id, hashes]);
+    await audit(req, 'auth.2fa_enabled');
+    res.json({ success: true, data: { recoveryCodes: codes } });
+  }),
+);
+
+/** POST /api/auth/2fa/disable — { password, code | recoveryCode } */
+router.post(
+  '/2fa/disable',
+  requireAuth,
+  accountLimiter,
+  asyncHandler(async (req, res) => {
+    const body = parse(z.object({ password: z.string().min(1).max(200), code: codeSchema, recoveryCode: codeSchema }), req.body);
+    const { rows } = await query('SELECT * FROM falconmed_v4.users WHERE id = $1', [req.user.id]);
+    const user = rows[0];
+    if (!user.totp_enabled_at) throw badRequest('Two-factor sign-in is not on.');
+    if (req.user.role === 'admin' && req.user.require_admin_2fa) throw forbidden('Your organisation requires two-factor sign-in for admins.');
+    if (!(await bcrypt.compare(body.password, user.password_hash))) throw badRequest('Your password is not correct');
+    if (!(await checkSecondFactor(user, body))) throw badRequest('That code is not correct');
+    await query(
+      `UPDATE falconmed_v4.users SET totp_secret_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL, recovery_codes = '{}' WHERE id = $1`,
+      [user.id],
+    );
+    await audit(req, 'auth.2fa_disabled');
+    res.json({ success: true, data: { enabled: false } });
+  }),
+);
+
+/** POST /api/auth/2fa/recovery-codes — { code } → ten new codes; the old ones stop working. */
+router.post(
+  '/2fa/recovery-codes',
+  requireAuth,
+  accountLimiter,
+  asyncHandler(async (req, res) => {
+    const { code } = parse(z.object({ code: z.string().trim().max(10) }), req.body);
+    const { rows } = await query('SELECT * FROM falconmed_v4.users WHERE id = $1', [req.user.id]);
+    if (!rows[0].totp_enabled_at) throw badRequest('Two-factor sign-in is not on.');
+    if (!(await checkSecondFactor(rows[0], { code }))) throw badRequest('That code is not correct');
+    const { codes, hashes } = newRecoveryCodes();
+    await query('UPDATE falconmed_v4.users SET recovery_codes = $2 WHERE id = $1', [req.user.id, hashes]);
+    await audit(req, 'auth.recovery_codes_renewed');
+    res.json({ success: true, data: { recoveryCodes: codes } });
   }),
 );
 
@@ -166,6 +329,7 @@ export const TRIAL_DAYS = 14;
 // New organisations per IP: generous for an office sharing one connection,
 // tight enough to stop scripted sign-ups.
 const signupLimiter = rateLimit({
+  store: new PgStore('signup'),
   windowMs: 60 * 60 * 1000,
   limit: 5,
   standardHeaders: 'draft-7',
@@ -339,6 +503,8 @@ router.post(
     const user = await loadUser(userId);
     if (!user?.is_active) throw unauthorized('Account is not active');
     await audit(req, 'auth.password_reset', { orgId: user.org_id, actorId: user.id });
+    // Access to the inbox is not enough: with two-factor sign-in on, the code is still needed.
+    if (user.totp_enabled_at) return res.json({ success: true, data: mfaChallenge(user) });
     res.json({ success: true, data: { token: signToken(user), user: publicUser(user) } });
   }),
 );

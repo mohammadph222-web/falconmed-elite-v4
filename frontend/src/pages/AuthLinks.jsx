@@ -7,6 +7,7 @@ import { PASSWORD_RULES, passwordOk } from '../lib/password';
 import { HOME } from '../lib/routes';
 import { Spinner } from '../components/States';
 import { Field, FormError } from '../components/Modal';
+import { MfaStep } from '../components/TwoFactor';
 
 /** Centred card used by every page reached from an email link. */
 function AuthCard({ icon: Icon, title, subtitle, children }) {
@@ -82,6 +83,7 @@ export function ResetPassword() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [mfaToken, setMfaToken] = useState(null);
   const valid = passwordOk(next) && next === confirm;
 
   const submit = async (e) => {
@@ -90,6 +92,12 @@ export function ResetPassword() {
     setError(null);
     try {
       const r = await api('/auth/reset-password', { method: 'POST', body: { token, newPassword: next } });
+      // Two-factor sign-in is on: the password is saved, and the code is still needed to sign in.
+      if (r.data.mfaRequired) {
+        setMfaToken(r.data.mfaToken);
+        setBusy(false);
+        return;
+      }
       replaceSession(r.data.token, r.data.user);
       navigate(HOME[r.data.user.role], { replace: true });
     } catch (err) {
@@ -103,6 +111,14 @@ export function ResetPassword() {
       <AuthCard icon={XCircle} title="Link incomplete" subtitle="Open the link from your email again, or request a new one.">
         <Link to="/forgot-password" className="btn-primary w-full py-3">Request a new link</Link>
         <BackToSignIn />
+      </AuthCard>
+    );
+  }
+
+  if (mfaToken) {
+    return (
+      <AuthCard icon={KeyRound} title="Password saved" subtitle="Two-factor sign-in is on for this account, so confirm it is you.">
+        <MfaStep mfaToken={mfaToken} />
       </AuthCard>
     );
   }

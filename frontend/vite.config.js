@@ -35,9 +35,11 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           // Keep the charting library out of the first-load bundle.
-          manualChunks: {
-            react: ['react', 'react-dom', 'react-router-dom'],
-            charts: ['recharts'],
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'react';
+            if (/[\\/]node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/.test(id)) return 'charts';
+            return undefined;
           },
         },
       },

@@ -8,6 +8,7 @@ import Signup from './pages/Signup';
 import { ForgotPassword, ResetPassword, VerifyEmail } from './pages/AuthLinks';
 import { HOME } from './lib/routes';
 import { ForcedPasswordChange } from './pages/AccountPage';
+import { ForcedTwoFactorSetup } from './components/TwoFactor';
 
 const PharmacistPage = lazy(() => import('./pages/PharmacistPage'));
 const ManagerPage = lazy(() => import('./pages/ManagerPage'));
@@ -79,6 +80,8 @@ export default function App() {
 
   // A temporary password must be replaced before anything else.
   if (user.mustChangePassword) return <ForcedPasswordChange />;
+  // The organisation requires two-factor sign-in for admins and this admin has not set it up.
+  if (user.twoFactorSetupRequired) return <ForcedTwoFactorSetup />;
 
   const product = (roles, page) => (
     <RequireRole roles={roles}>

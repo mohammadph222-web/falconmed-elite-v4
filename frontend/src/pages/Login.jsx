@@ -7,6 +7,7 @@ import { ROLE_LABEL } from '../lib/format';
 import { Spinner } from '../components/States';
 import { HOME } from '../lib/routes';
 import { APP_VERSION } from '../lib/version';
+import { MfaStep } from '../components/TwoFactor';
 
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || 'Demo@2026';
 const ROLE_ICON = { pharmacist: MonitorSmartphone, manager: Building2, admin: Network };
@@ -31,6 +32,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [demo, setDemo] = useState([]);
   const [waking, setWaking] = useState(false);
+  const [mfaToken, setMfaToken] = useState(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -55,8 +57,13 @@ export default function Login() {
     setError('');
     setBusy(true);
     try {
-      const user = await login(em, pw);
-      navigate(HOME[user.role], { replace: true });
+      const result = await login(em, pw);
+      if (result.mfaRequired) {
+        setMfaToken(result.mfaToken);
+        setBusy(false);
+        return;
+      }
+      navigate(HOME[result.role], { replace: true });
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -113,6 +120,11 @@ export default function Login() {
           <h2 className="font-display text-2xl font-semibold text-white">Sign in</h2>
           <p className="mt-1 text-sm text-mist-400">{demo.length ? 'Use your work account or a demo role below.' : 'Use your work account.'}</p>
 
+          {mfaToken ? (
+            <div className="mt-8">
+              <MfaStep mfaToken={mfaToken} onCancel={() => (setMfaToken(null), setPassword(''))} />
+            </div>
+          ) : (
           <form onSubmit={submit} className="mt-8 space-y-4">
             <label className="block">
               <span className="label">Email</span>
@@ -161,6 +173,7 @@ export default function Login() {
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+          )}
 
           <p className="mt-5 text-center text-sm text-mist-400">
             New to FalconMed?{' '}

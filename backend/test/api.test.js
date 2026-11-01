@@ -26,6 +26,7 @@ const get = (role, url) => request(app).get(url).set('Authorization', `Bearer ${
 const post = (role, url, body = {}) => request(app).post(url).set('Authorization', `Bearer ${tokens[role]}`).send(body);
 
 before(async () => {
+  await pool.query('DELETE FROM falconmed_v4.rate_limits'); // rate-limit counters persist in the database
   await seed({ days: 14, reset: true, log: () => {} });
   tokens.pharmacist = await login('pharmacist@demo.falconmed.app');
   tokens.manager = await login('manager@demo.falconmed.app');

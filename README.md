@@ -24,7 +24,7 @@ It is a **multi-tenant SaaS**: pharmacy groups sign up, start a free trial and s
 | **Organisation admin** | Settings | Add and edit branches and team members, assign roles and counters, deactivate accounts, reset passwords (temporary password + forced change at first sign-in). Demo records are protected |
 | **Organisation admin** | Billing | Plan, usage against plan limits, Stripe Checkout and the Customer Portal (card, invoices, cancel). Trial days carry over when subscribing early |
 | **Organisation admin** | Queue keys · Security log · Your data | Per-organisation kiosk keys (revocable, optionally one branch); a log of sign-ins and changes; CSV export of every ticket; delete the organisation and all its data |
-| Everyone | My account | Profile and password change; changing it signs out every other device. Forgotten passwords are reset by email link |
+| Everyone | My account | Profile and password change; changing it signs out every other device. Forgotten passwords are reset by email link. Optional two-factor sign-in with an authenticator app and recovery codes (organisations can require it for admins) |
 | Manager / admin | Import data | Load a CSV export from any queue system. A data-quality report (score, rejected rows with reasons, warnings, privacy guard) appears before anything is saved; every import can be rolled back. See [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) |
 
 ## Architecture
@@ -52,10 +52,10 @@ flowchart LR
 
 | Layer | Stack |
 |---|---|
-| Frontend | React 18, Vite 5, Tailwind CSS, Recharts, React Router 7, lucide icons. Route-level code splitting. |
+| Frontend | React 18, Vite 8, Tailwind CSS, Recharts, React Router 7, lucide icons. Route-level code splitting. |
 | Backend | Node 20, Express 4, `pg`, zod validation, JWT + bcrypt, helmet, rate limiting, Stripe, Resend |
 | Database | PostgreSQL 16 (Neon). Versioned SQL migrations, check constraints that make invalid ticket states impossible. |
-| Testing | 79 end-to-end API tests (`node:test` + supertest) against a real PostgreSQL; GitHub Actions CI |
+| Testing | 89 end-to-end API tests (`node:test` + supertest) against a real PostgreSQL; GitHub Actions CI |
 | Hosting | Vercel + Render + Neon + Cloudflare, all free tier |
 
 ## Quick start
@@ -85,7 +85,7 @@ cd backend
 DATABASE_URL=postgresql://…/a_disposable_db npm test
 ```
 
-The tests cover: authentication and forged tokens; role scoping (pharmacist / manager / admin boundaries); SQL-injection and invalid-date rejection; KPI reconciliation against raw SQL; staff = pharmacists, with counts summing to the branch; hourly and daily series completeness; no hard-coded metrics on empty periods; kiosk key auth; concurrent *Call next* safety; ownership of ticket closure; live board scoping; end-of-day housekeeping; same-time comparison for periods that include today; importer quality checks, privacy guard, duplicate protection, rollback, and a 50,000-row stress import; tenant isolation (branches, KPIs, live queue, simulator, imports, suspended organisations) and demo refreshes that never touch real organisations; organisation settings (counter clashes, last-admin protection, temporary passwords, session sign-out on password change, protected demo records); self-service sign-up (trial, validation, bot trap, isolation, onboarding progress); per-organisation queue keys (no cross-tenant tickets, branch-scoped and revoked keys); trial and subscription enforcement and plan limits; account lockout; password reset, invitations and email confirmation; Stripe checkout and signed, idempotent webhooks; formula-safe CSV export; organisation deletion.
+The tests cover: authentication and forged tokens; role scoping (pharmacist / manager / admin boundaries); SQL-injection and invalid-date rejection; KPI reconciliation against raw SQL; staff = pharmacists, with counts summing to the branch; hourly and daily series completeness; no hard-coded metrics on empty periods; kiosk key auth; concurrent *Call next* safety; ownership of ticket closure; live board scoping; end-of-day housekeeping; same-time comparison for periods that include today; importer quality checks, privacy guard, duplicate protection, rollback, and a 50,000-row stress import; tenant isolation (branches, KPIs, live queue, simulator, imports, suspended organisations) and demo refreshes that never touch real organisations; organisation settings (counter clashes, last-admin protection, temporary passwords, session sign-out on password change, protected demo records); self-service sign-up (trial, validation, bot trap, isolation, onboarding progress); per-organisation queue keys (no cross-tenant tickets, branch-scoped and revoked keys); trial and subscription enforcement and plan limits; account lockout; password reset, invitations and email confirmation; Stripe checkout and signed, idempotent webhooks; formula-safe CSV export; organisation deletion; two-factor sign-in (replay protection, recovery codes, reset-link bypass, admin policy, encryption at rest) and database-backed rate limits.
 
 ## What v4 changed from v3
 

@@ -26,6 +26,7 @@ const del = (role, url) => request(app).delete(url).set('Authorization', `Bearer
 const issue = (report, code) => report.issues.find((i) => i.code === code);
 
 before(async () => {
+  await pool.query('DELETE FROM falconmed_v4.rate_limits'); // rate-limit counters persist in the database
   await seed({ days: 3, reset: true, log: () => {} });
   tokens.admin = await login('admin@demo.falconmed.app');
   tokens.manager = await login('manager@demo.falconmed.app');

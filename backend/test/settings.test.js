@@ -22,6 +22,7 @@ const as = (token) => ({
 const admin = () => as(tokens.admin);
 
 before(async () => {
+  await pool.query('DELETE FROM falconmed_v4.rate_limits'); // rate-limit counters persist in the database
   await seed({ days: 2, reset: true, log: () => {} });
   // A real (non-demo) organisation, so editing rules can be tested without demo protection.
   await pool.query(`INSERT INTO falconmed_v4.organizations (id, name, slug, plan, trial_ends_at) VALUES ('org_test', 'Test Pharmacies', 'test-pharmacies', 'trial', now() + interval '14 days')`);

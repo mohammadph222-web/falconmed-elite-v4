@@ -14,8 +14,5 @@ What the code already does is in [SECURITY.md](SECURITY.md) and [BILLING.md](BIL
 - [ ] **Monitoring.** Uptime check on `/api/health`; alerts on 5xx rate. Consider an error tracker (e.g. Sentry) for the API and dashboard.
 - [ ] **Domains.** API and dashboard on your own domains over HTTPS; `APP_URL` and `CORS_ORIGINS` updated to match.
 
-## Follow-ups (not blocking)
-
-- [ ] Upgrade Vite 5 → current major (dev-server advisories in esbuild; the shipped static files are not affected).
-- [ ] Two-factor authentication for organisation admins.
-- [ ] Shared rate-limit store if the API runs on more than one instance.
+- [ ] **Secrets.** `DATA_ENCRYPTION_KEY` set once and backed up with your other secrets (two-factor secrets cannot be read without it).
+- [ ] **Sign-in policy.** Turn on two-factor sign-in for your own admin account, and require it for admins in your customers' onboarding guidance.

@@ -44,7 +44,10 @@ async function newOrg(name = 'Saas Test Pharmacy') {
 }
 const setOrg = (id, sql, params = []) => pool.query(`UPDATE falconmed_v4.organizations SET ${sql} WHERE id = $1`, [id, ...params]);
 
-before(() => seed({ days: 1, reset: true, log: () => {} }));
+before(async () => {
+  await pool.query('DELETE FROM falconmed_v4.rate_limits'); // rate-limit counters persist in the database
+  await seed({ days: 1, reset: true, log: () => {} });
+});
 after(async () => {
   for (const id of created) {
     await pool.query(`DELETE FROM falconmed_v4.tickets WHERE branch_id IN (SELECT id FROM falconmed_v4.branches WHERE org_id = $1)`, [id]);

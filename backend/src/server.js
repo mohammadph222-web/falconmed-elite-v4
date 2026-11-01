@@ -18,6 +18,7 @@ async function start() {
       // Used or expired email links, and webhook IDs older than Stripe's retry window.
       pool.query(`DELETE FROM falconmed_v4.auth_tokens WHERE expires_at < now() - interval '1 day' OR used_at < now() - interval '1 day'`),
       pool.query(`DELETE FROM falconmed_v4.stripe_events WHERE received_at < now() - interval '30 days'`),
+      pool.query(`DELETE FROM falconmed_v4.rate_limits WHERE reset_at < now()`),
     ]).catch((err) => console.error('housekeeping failed:', err.message));
   await housekeeping();
   setInterval(housekeeping, 10 * 60 * 1000).unref();

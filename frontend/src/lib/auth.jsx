@@ -34,8 +34,19 @@ export function AuthProvider({ children }) {
     return () => ctrl.abort();
   }, [status, logout]);
 
+  /** Returns the user, or { mfaRequired, mfaToken } when a code from the authenticator app is needed next. */
   const login = useCallback(async (email, password) => {
     const r = await api('/auth/login', { method: 'POST', body: { email, password } });
+    if (r.data.mfaRequired) return r.data;
+    tokenStore.set(r.data.token);
+    setUser(r.data.user);
+    setStatus('signed_in');
+    return r.data.user;
+  }, []);
+
+  /** Second sign-in step: { code } or { recoveryCode }. */
+  const completeMfa = useCallback(async (mfaToken, factor) => {
+    const r = await api('/auth/2fa/verify', { method: 'POST', body: { mfaToken, ...factor } });
     tokenStore.set(r.data.token);
     setUser(r.data.user);
     setStatus('signed_in');
@@ -63,8 +74,8 @@ export function AuthProvider({ children }) {
   }, [refreshUser]);
 
   const value = useMemo(
-    () => ({ user, status, login, logout, retry, replaceSession, refreshUser }),
-    [user, status, login, logout, retry, replaceSession, refreshUser],
+    () => ({ user, status, login, completeMfa, logout, retry, replaceSession, refreshUser }),
+    [user, status, login, completeMfa, logout, retry, replaceSession, refreshUser],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -7,6 +7,11 @@ import { entitlement } from '../lib/plans.js';
 import { hashSecret } from '../lib/tokens.js';
 
 const PASSWORD_CHANGE_PATHS = new Set(['/api/auth/me', '/api/auth/password']);
+// What an admin may still do while their organisation requires two-factor sign-in they have not set up.
+const MFA_SETUP_PATHS = new Set(['/api/auth/me', '/api/auth/password', '/api/auth/2fa/setup', '/api/auth/2fa/enable', '/api/auth/resend-verification']);
+
+/** The organisation requires two-factor sign-in for admins, and this admin has not set it up. */
+export const mustSetUpMfa = (u) => u.role === 'admin' && Boolean(u.require_admin_2fa) && !u.totp_enabled_at && !u.is_demo_fixture;
 const JWT_OPTS = { issuer: 'falconmed-api', audience: 'falconmed-app' };
 
 export function signToken(user) {
@@ -21,7 +26,8 @@ export function signToken(user) {
 export async function loadUser(id) {
   const { rows } = await query(
     `SELECT u.id, u.email, u.full_name, u.role, u.org_id, u.branch_id, u.counter_no,
-            u.must_change_password, u.token_version, u.is_demo_fixture, u.email_verified_at,
+            u.must_change_password, u.token_version, u.is_demo_fixture, u.email_verified_at, u.totp_enabled_at,
+            array_length(u.recovery_codes, 1) AS recovery_codes_left, o.require_admin_2fa,
             (u.is_active AND o.is_active AND o.deleted_at IS NULL) AS is_active,
             b.name AS branch_name, o.name AS org_name, o.plan AS org_plan, o.trial_ends_at,
             o.subscription_status, o.current_period_end, o.cancel_at_period_end
@@ -54,6 +60,9 @@ export const publicUser = (u) => {
     counterNo: u.counter_no,
     mustChangePassword: Boolean(u.must_change_password),
     demoProtected: Boolean(u.is_demo_fixture),
+    twoFactorEnabled: Boolean(u.totp_enabled_at),
+    recoveryCodesLeft: u.totp_enabled_at ? (u.recovery_codes_left ?? 0) : null,
+    twoFactorSetupRequired: mustSetUpMfa(u),
   };
 };
 
@@ -81,6 +90,9 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
   // A temporary password must be replaced before anything else.
   if (user.must_change_password && !PASSWORD_CHANGE_PATHS.has(req.baseUrl + req.path)) {
     throw new HttpError(403, 'Please choose a new password first', 'PASSWORD_CHANGE_REQUIRED');
+  }
+  if (mustSetUpMfa(user) && !MFA_SETUP_PATHS.has(req.baseUrl + req.path)) {
+    throw new HttpError(403, 'Your organisation requires two-factor sign-in for admins. Set it up to continue.', 'MFA_SETUP_REQUIRED');
   }
   req.user = user;
   next();
