@@ -26,7 +26,9 @@ erDiagram
 3. **The database rejects cross-organisation links** (composite foreign key above).
 4. **Suspending an organisation** (`is_active = false`) signs its users out on their next request and blocks sign-in. Other organisations are unaffected.
 
-All of this is covered by `backend/test/tenancy.test.js`.
+5. **Queue machines use the organisation's own keys.** A kiosk key belongs to one organisation (and optionally one branch) and is refused for any other. Before v5 a single shared key could register tickets in any organisation's branch; it now reaches demo organisations only.
+
+All of this is covered by `backend/test/tenancy.test.js` and `backend/test/saas.test.js`.
 
 ## Demo organisations
 

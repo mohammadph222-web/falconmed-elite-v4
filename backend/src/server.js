@@ -11,11 +11,14 @@ async function start() {
   // It never deletes data; seeding is a separate, explicit command.
   await migrate({ log: (m) => console.log(m) });
 
-  // Close tickets left open from previous days, now and every 10 minutes.
+  // Close tickets left open from previous days and clear expired records, now and every 10 minutes.
   const housekeeping = () =>
-    closeStaleTickets()
-      .then((r) => (r.abandoned || r.auto_closed) && console.log(`🧹 closed stale tickets`, r))
-      .catch((err) => console.error('housekeeping failed:', err.message));
+    Promise.all([
+      closeStaleTickets().then((r) => (r.abandoned || r.auto_closed) && console.log(`🧹 closed stale tickets`, r)),
+      // Used or expired email links, and webhook IDs older than Stripe's retry window.
+      pool.query(`DELETE FROM falconmed_v4.auth_tokens WHERE expires_at < now() - interval '1 day' OR used_at < now() - interval '1 day'`),
+      pool.query(`DELETE FROM falconmed_v4.stripe_events WHERE received_at < now() - interval '30 days'`),
+    ]).catch((err) => console.error('housekeeping failed:', err.message));
   await housekeeping();
   setInterval(housekeeping, 10 * 60 * 1000).unref();
 

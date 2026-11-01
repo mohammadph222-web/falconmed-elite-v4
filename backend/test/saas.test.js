@@ -234,14 +234,17 @@ test('billing: checkout needs a confirmed email, and a subscription event upgrad
   const forged = await request(app).post('/api/billing/webhook').set('Stripe-Signature', 't=1,v1=bad').set('Content-Type', 'application/json').send('{}');
   assert.equal(forged.status, 400);
 
-  subscriptions.set('sub_1', {
-    id: 'sub_1',
+  // Unique per run: processed event IDs are kept (that is the point of the dedupe).
+  const run = Date.now().toString(36);
+  const subId = `sub_${run}`;
+  subscriptions.set(subId, {
+    id: subId,
     customer: `cus_${org.id}`,
     status: 'active',
     cancel_at_period_end: false,
     items: { data: [{ price: { id: 'price_pro' }, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400 }] },
   });
-  const event = { id: 'evt_1', type: 'customer.subscription.created', data: { object: { id: 'sub_1' } } };
+  const event = { id: `evt_${run}_1`, type: 'customer.subscription.created', data: { object: { id: subId } } };
   const res = await sendEvent(event);
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal((await sendEvent(event)).body.duplicate, true, 'processed once');
@@ -254,8 +257,8 @@ test('billing: checkout needs a confirmed email, and a subscription event upgrad
   assert.equal((await as(org.token).post('/api/billing/portal')).body.data.url, `https://billing.stripe.test/cus_${org.id}`);
 
   // Cancellation arrives later: the product locks.
-  subscriptions.set('sub_1', { ...subscriptions.get('sub_1'), status: 'canceled' });
-  await sendEvent({ id: 'evt_2', type: 'customer.subscription.deleted', data: { object: { id: 'sub_1' } } });
+  subscriptions.set(subId, { ...subscriptions.get(subId), status: 'canceled' });
+  await sendEvent({ id: `evt_${run}_2`, type: 'customer.subscription.deleted', data: { object: { id: subId } } });
   assert.equal((await as(org.token).get('/api/auth/me')).body.data.entitled, false);
 });
 

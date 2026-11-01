@@ -1,7 +1,7 @@
 {
   "name": "falconmed-elite-backend",
-  "version": "4.6.0",
-  "description": "FalconMed Elite v4 — pharmacy queue analytics API (Express + PostgreSQL)",
+  "version": "5.0.0",
+  "description": "FalconMed Elite v5 — pharmacy queue analytics API (Express + PostgreSQL)",
   "type": "module",
   "main": "src/server.js",
   "engines": {
