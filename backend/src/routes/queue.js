@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { query } from '../config/db.js';
 import { asyncHandler, forbidden, parse } from '../lib/http.js';
 import { assertInOrg } from '../lib/scope.js';
-import { requireAuth, requireQueueKeyOrStaff, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireEntitlement, requireQueueKeyOrStaff, requireRole } from '../middleware/auth.js';
 import * as queue from '../services/queue.js';
 
 const router = Router();
@@ -20,6 +21,22 @@ const ticketSchema = z.object({
     .optional(),
 });
 
+/**
+ * A queue key only reaches its own organisation's branches, or the one
+ * branch it was created for. The legacy shared key reaches demo organisations only.
+ */
+async function assertKeyReaches(key, branchId) {
+  if (key.branchId && key.branchId !== branchId) throw forbidden('This queue key is for a different branch');
+  const { rows } = key.legacy
+    ? await query(
+        `SELECT 1 FROM falconmed_v4.branches b JOIN falconmed_v4.organizations o ON o.id = b.org_id
+          WHERE b.id = $1 AND o.plan = 'demo'`,
+        [branchId],
+      )
+    : await query('SELECT 1 FROM falconmed_v4.branches WHERE id = $1 AND org_id = $2', [branchId, key.orgId]);
+  if (!rows.length) throw forbidden('That branch is not part of this queue key\'s organisation');
+}
+
 /** POST /api/queue/tickets — patient arrival from the queue machine (X-Queue-Key) or the simulator. */
 router.post(
   '/tickets',
@@ -30,13 +47,14 @@ router.post(
       throw forbidden('Managers can only register tickets for their own branch');
     }
     if (req.user) await assertInOrg(req.user, { branchId: body.branchId });
-    if (!req.viaQueueKey) body.source = 'simulator';
+    if (req.queueKey) await assertKeyReaches(req.queueKey, body.branchId);
+    else body.source = 'simulator';
     const ticket = await queue.createTicket(body);
     res.status(201).json({ success: true, data: ticket });
   }),
 );
 
-router.use(requireAuth);
+router.use(requireAuth, requireEntitlement);
 
 /** GET /api/queue/live?branchId= — open tickets, last-hour pulse and alerts. */
 router.get(

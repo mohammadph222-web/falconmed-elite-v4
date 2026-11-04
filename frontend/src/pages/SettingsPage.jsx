@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Building2, Eye, Info, KeyRound, Lock, Pencil, Plus, Power, Search, UserPlus, Users } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Building2, Eye, Info, KeyRound, Lock, ShieldCheck, Pencil, Plus, Power, Search, UserPlus, Users } from 'lucide-react';
 import { api } from '../lib/api';
 import { useApi } from '../lib/useApi';
 import { useAuth } from '../lib/auth';
 import { cn, ROLE_LABEL } from '../lib/format';
-import { PageHeader, Panel, Segmented } from '../components/ui';
+import { Badge, PageHeader, Panel, Segmented } from '../components/ui';
+import { useSubmit } from '../lib/useSubmit';
+import { ApiKeysTab, AuditTab, DataPanel } from './SettingsSecurity';
 import { EmptyState, Spinner } from '../components/States';
 import { Field, FormError, Modal, TemporaryPassword } from '../components/Modal';
 
@@ -15,34 +17,6 @@ const ROLE_OPTIONS = [
   { id: 'admin', label: 'Admin' },
 ];
 
-function useSubmit(fn) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const run = async (...args) => {
-    setBusy(true);
-    setError(null);
-    try {
-      return await fn(...args);
-    } catch (err) {
-      setError(err);
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-  return { run, busy, error, setError };
-}
-
-function Badge({ tone = 'muted', children }) {
-  const cls = {
-    ok: 'bg-ok/15 text-ok-300 ring-ok/30',
-    muted: 'bg-ink-700 text-mist-300 ring-ink-600',
-    warn: 'bg-warn/15 text-warn-300 ring-warn/30',
-    brand: 'bg-brand/15 text-brand-200 ring-brand/30',
-  }[tone];
-  return <span className={cn('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', cls)}>{children}</span>;
-}
-
 const ProtectedMark = () => (
   <span title="Protected demo record" className="inline-flex text-mist-500">
     <Lock className="h-3.5 w-3.5" aria-label="Protected demo record" />
@@ -51,6 +25,7 @@ const ProtectedMark = () => (
 
 // ── team ─────────────────────────────────────────────────────────
 function MemberForm({ member, branches, team, onSaved, onClose }) {
+  const { user: me } = useAuth();
   const editing = Boolean(member);
   const [form, setForm] = useState({
     fullName: member?.name ?? '',
@@ -90,6 +65,12 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
     onSaved();
     setTemp({ name: member.name, email: member.email, password: r.data.temporaryPassword });
   });
+  const reset2fa = useSubmit(async () => {
+    if (!window.confirm(`Turn off two-factor sign-in for ${member.name}? Do this only if they lost their phone and recovery codes. They are signed out and can set it up again.`)) return;
+    await api(`/org/users/${member.id}/reset-2fa`, { method: 'POST' });
+    onSaved();
+    onClose();
+  });
   const toggle = useSubmit(async () => {
     await api(`/org/users/${member.id}`, { method: 'PATCH', body: { isActive: !member.isActive } });
     onSaved();
@@ -105,7 +86,7 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
   }
 
   const locked = member?.demoProtected;
-  const error = save.error || reset.error || toggle.error;
+  const error = save.error || reset.error || reset2fa.error || toggle.error;
   return (
     <Modal
       title={editing ? member.name : 'Add a team member'}
@@ -118,6 +99,11 @@ function MemberForm({ member, branches, team, onSaved, onClose }) {
               {member.isActive && (
                 <button type="button" className="btn-ghost px-3" onClick={reset.run} disabled={reset.busy}>
                   <KeyRound className="h-4 w-4" /> Reset password
+                </button>
+              )}
+              {member.twoFactorEnabled && member.id !== me?.id && (
+                <button type="button" className="btn-ghost px-3" onClick={reset2fa.run} disabled={reset2fa.busy}>
+                  <ShieldCheck className="h-4 w-4" /> Reset two-factor
                 </button>
               )}
               <button type="button" className={member.isActive ? 'btn-warn px-3' : 'btn-ghost px-3'} onClick={toggle.run} disabled={toggle.busy}>
@@ -254,7 +240,8 @@ function TeamTab({ team, branches, reload }) {
                     {u.role === 'admin' ? <span className="text-mist-500">All branches</span> : `${u.branchName ?? '—'}${u.counterNo ? ` · ${u.counterNo}` : ''}`}
                   </td>
                   <td className="px-3 py-3">
-                    {!u.isActive ? <Badge>Inactive</Badge> : u.mustChangePassword ? <Badge tone="warn">Invited</Badge> : <Badge tone="ok">Active</Badge>}
+                    {!u.isActive ? <Badge>Inactive</Badge> : u.mustChangePassword ? <Badge tone="warn">Invited</Badge> : <Badge tone="ok">Active</Badge>}{' '}
+                    {u.twoFactorEnabled && <Badge tone="brand">2FA</Badge>}
                   </td>
                   <td className="px-5 py-3 text-right">
                     <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => setEditing(u)}>
@@ -382,7 +369,11 @@ function BranchesTab({ branches, reload }) {
 
 // ── organisation ─────────────────────────────────────────────────
 function OrganisationTab({ org, reload }) {
-  const { refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const require2fa = useSubmit(async (on) => {
+    await api('/org', { method: 'PATCH', body: { requireAdmin2fa: on } });
+    await reload();
+  });
   const [name, setName] = useState(org.name);
   const [saved, setSaved] = useState(false);
   const save = useSubmit(async () => {
@@ -409,7 +400,7 @@ function OrganisationTab({ org, reload }) {
           )}
         </form>
       </Panel>
-      <Panel title="Plan and usage">
+      <Panel title="Plan and usage" right={!org.demoProtected && <Link to="/billing" className="text-sm font-semibold text-brand-300 hover:text-brand-200">Billing →</Link>}>
         <dl className="space-y-3 text-sm">
           {[
             ['Plan', <Badge key="p" tone="brand">{org.plan}</Badge>],
@@ -424,13 +415,35 @@ function OrganisationTab({ org, reload }) {
           ))}
         </dl>
       </Panel>
+      {!org.demoProtected && (
+        <Panel title="Sign-in security" className="lg:col-span-2">
+          <label className="flex items-start gap-3 text-sm text-mist-200">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-[#2563a8]"
+              checked={org.requireAdmin2fa}
+              disabled={require2fa.busy || (!org.requireAdmin2fa && !user.twoFactorEnabled)}
+              onChange={(e) => require2fa.run(e.target.checked)}
+            />
+            <span>
+              <span className="font-semibold text-white">Require two-factor sign-in for admins.</span> Admins without it are asked to set it up
+              at their next sign-in.
+              {!user.twoFactorEnabled && <span className="block text-xs text-mist-500">Turn it on for your own account first, under My account.</span>}
+            </span>
+          </label>
+          <div className="mt-2">
+            <FormError error={require2fa.error} />
+          </div>
+        </Panel>
+      )}
+      <DataPanel org={org} />
     </div>
   );
 }
 
 export default function SettingsPage() {
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(['team', 'branches', 'org'].includes(params.get('tab')) ? params.get('tab') : 'team');
+  const [tab, setTab] = useState(['team', 'branches', 'keys', 'security', 'org'].includes(params.get('tab')) ? params.get('tab') : 'team');
   const org = useApi('/org');
   const branches = useApi('/org/branches');
   const team = useApi('/org/users');
@@ -443,7 +456,7 @@ export default function SettingsPage() {
       <PageHeader
         eyebrow={org.data ? `${org.data.name} · settings` : 'Settings'}
         title="Settings"
-        subtitle="Manage your organisation’s branches and team. Changes apply immediately."
+        subtitle="Manage your organisation’s branches, team, queue machines and data. Changes apply immediately."
         actions={
           <Segmented
             value={tab}
@@ -451,6 +464,8 @@ export default function SettingsPage() {
             options={[
               { id: 'team', label: <span className="inline-flex items-center gap-1.5"><Users className="h-4 w-4" />Team</span> },
               { id: 'branches', label: <span className="inline-flex items-center gap-1.5"><Building2 className="h-4 w-4" />Branches</span> },
+              { id: 'keys', label: <span className="inline-flex items-center gap-1.5"><KeyRound className="h-4 w-4" />Queue keys</span> },
+              { id: 'security', label: <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-4 w-4" />Security log</span> },
               { id: 'org', label: 'Organisation' },
             ]}
           />
@@ -474,6 +489,10 @@ export default function SettingsPage() {
         <TeamTab team={team.data} branches={branches.data} reload={reloadAll} />
       ) : tab === 'branches' ? (
         <BranchesTab branches={branches.data} reload={reloadAll} />
+      ) : tab === 'keys' ? (
+        <ApiKeysTab branches={branches.data} />
+      ) : tab === 'security' ? (
+        <AuditTab />
       ) : (
         <OrganisationTab org={org.data} reload={reloadAll} />
       )}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
-import { Activity, Building2, FileUp, FlaskConical, KeyRound, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, Settings2, X } from 'lucide-react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
+import { Activity, Building2, CreditCard, FileUp, FlaskConical, KeyRound, LayoutDashboard, LogOut, Menu, MonitorSmartphone, Network, Settings2, X } from 'lucide-react';
+import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { cn, ROLE_LABEL } from '../lib/format';
 import { APP_VERSION } from '../lib/version';
@@ -19,6 +20,7 @@ const NAV = {
     { to: '/import', label: 'Import data', icon: FileUp },
     { to: '/simulator', label: 'Queue simulator', icon: FlaskConical },
     { to: '/settings', label: 'Settings', icon: Settings2 },
+    { to: '/billing', label: 'Billing', icon: CreditCard },
   ],
 };
 
@@ -104,29 +106,77 @@ function Sidebar({ onNavigate }) {
   );
 }
 
-/** Demo organisations get the demo notice; trial organisations see the days left. */
+const bannerCls = (tone) =>
+  cn(
+    'border-b px-4 py-1.5 text-center text-[11px] sm:px-8',
+    tone === 'crit' ? 'border-crit/25 bg-crit/10 text-crit-300' : tone === 'warn' ? 'border-warn/20 bg-warn/[0.07] text-warn-300' : 'border-brand/25 bg-brand/[0.08] text-brand-200',
+  );
+
+/** Demo organisations get the demo notice; trial organisations see the days left; billing problems are flagged. */
 function PlanBanner({ user }) {
+  const billing = user.role === 'admin' ? (
+    <Link to="/billing" className="ml-2 font-semibold underline underline-offset-2">
+      Billing
+    </Link>
+  ) : null;
   if (user.orgPlan === 'demo') {
     return (
-      <div className="border-b border-warn/20 bg-warn/[0.07] px-4 py-1.5 text-center text-[11px] text-warn-300 sm:px-8">
+      <div className={bannerCls('warn')}>
         <span className="font-mono uppercase tracking-[0.12em]">Demo environment</span>
         <span className="mx-2 text-warn/50">·</span>
         Simulated pharmacy network. All tickets are generated; no real patient data.
       </div>
     );
   }
-  if (user.orgPlan === 'trial' && user.trialEndsAt) {
-    const days = Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / 86_400_000);
-    const ended = days <= 0;
+  if (user.entitled === false) {
     return (
-      <div className={cn('border-b px-4 py-1.5 text-center text-[11px] sm:px-8', ended ? 'border-crit/25 bg-crit/10 text-crit-300' : 'border-brand/25 bg-brand/[0.08] text-brand-200')}>
+      <div className={bannerCls('crit')}>
+        {user.entitlementReason === 'trial_ended' ? 'Your free trial has ended.' : 'Your subscription is not active.'} Your data is safe.
+        {billing ?? ' Ask your organisation admin to choose a plan.'}
+      </div>
+    );
+  }
+  if (user.subscriptionStatus === 'past_due') {
+    return <div className={bannerCls('warn')}>The latest payment failed. Stripe is retrying — please update the payment method.{billing}</div>;
+  }
+  if (user.orgPlan === 'trial' && user.trialEndsAt) {
+    const days = Math.max(0, Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / 86_400_000));
+    return (
+      <div className={bannerCls(days <= 3 ? 'warn' : 'brand')}>
         <span className="font-mono uppercase tracking-[0.12em]">Free trial</span>
         <span className="mx-2 opacity-50">·</span>
-        {ended ? 'Your trial has ended. Your data is safe — contact FalconMed to continue.' : `${days} day${days === 1 ? '' : 's'} left`}
+        {days} day{days === 1 ? '' : 's'} left{billing && <> ·{billing}</>}
       </div>
     );
   }
   return null;
+}
+
+/** New accounts are asked to confirm their email address. */
+function VerifyBanner({ user }) {
+  const [state, setState] = useState('idle');
+  if (user.emailVerified || user.demoProtected) return null;
+  const resend = async () => {
+    setState('sending');
+    try {
+      await api('/auth/resend-verification', { method: 'POST' });
+      setState('sent');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <div className={bannerCls('brand')}>
+      Please confirm your email address — we sent a link to {user.email}.{' '}
+      {state === 'sent' ? (
+        <span className="font-semibold">Sent again.</span>
+      ) : (
+        <button onClick={resend} disabled={state === 'sending'} className="font-semibold underline underline-offset-2">
+          {state === 'failed' ? 'Try again' : 'Send it again'}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export default function AppShell({ children }) {
@@ -161,6 +211,7 @@ export default function AppShell({ children }) {
       )}
 
       <PlanBanner user={user} />
+      <VerifyBanner user={user} />
 
       <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8 sm:py-8">{children}</main>
     </div>

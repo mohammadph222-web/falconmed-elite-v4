@@ -84,8 +84,8 @@ export function TemporaryPassword({ name, email, password }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-mist-300">
-        Give these details to <span className="font-semibold text-white">{name}</span>. They will be asked to choose their own password the
-        first time they sign in.
+        We emailed <span className="font-semibold text-white">{name}</span> a link to choose their password. If the email does not arrive, give
+        them these details instead: they will be asked to choose their own password the first time they sign in.
       </p>
       <div className="rounded-xl border border-ink-600 bg-ink-900 p-4">
         <div className="label">Email</div>

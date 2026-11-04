@@ -112,7 +112,7 @@ export function StatusPill({ status }) {
 
 export function Segmented({ options, value, onChange, size = 'md' }) {
   return (
-    <div className="inline-flex rounded-xl border border-ink-600 bg-ink-900/80 p-1" role="tablist">
+    <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-ink-600 bg-ink-900/80 p-1" role="tablist">
       {options.map((o) => (
         <button
           key={o.id}
@@ -120,7 +120,7 @@ export function Segmented({ options, value, onChange, size = 'md' }) {
           aria-selected={value === o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            'rounded-lg font-medium transition',
+            'shrink-0 whitespace-nowrap rounded-lg font-medium transition',
             size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
             value === o.id ? 'bg-brand text-white shadow' : 'text-mist-300 hover:text-white',
           )}
@@ -139,4 +139,14 @@ export function LiveDot({ label = 'Live' }) {
       {label}
     </span>
   );
+}
+
+export function Badge({ tone = 'muted', children }) {
+  const cls = {
+    ok: 'bg-ok/15 text-ok-300 ring-ok/30',
+    muted: 'bg-ink-700 text-mist-300 ring-ink-600',
+    warn: 'bg-warn/15 text-warn-300 ring-warn/30',
+    brand: 'bg-brand/15 text-brand-200 ring-brand/30',
+  }[tone];
+  return <span className={cn('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', cls)}>{children}</span>;
 }

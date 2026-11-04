@@ -39,6 +39,7 @@ const rawCount = async (orgId) =>
   ).rows[0].n;
 
 before(async () => {
+  await pool.query('DELETE FROM falconmed_v4.rate_limits'); // rate-limit counters persist in the database
   await seed({ days: 7, reset: true, log: () => {} });
   for (const [k, email] of Object.entries({
     demoAdmin: 'admin@demo.falconmed.app',

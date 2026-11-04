@@ -34,8 +34,11 @@ copy .env.example .env        # في Windows (أو cp في Mac/Linux)
 |---|---|
 | `DATABASE_URL` | رابط Neon **الجديد** (Pooled) |
 | `JWT_SECRET` | نص عشوائي طويل. ولّده بالأمر بعد الجدول |
-| `QUEUE_API_KEY` | نص عشوائي آخر (مفتاح آلة الطابور) |
+| `APP_URL` | رابط لوحة التحكم (يُستخدم في روابط البريد وفي Stripe) |
 | `DEMO_PASSWORD` | كلمة سر الحسابات التجريبية (الافتراضي `Demo@2026`) |
+| `QUEUE_API_KEY` | اختياري: مفتاح قديم مشترك يصل إلى المنظمات التجريبية فقط. اتركه فارغاً إن لم يكن لديك ديمو |
+| `RESEND_API_KEY`، `EMAIL_FROM` | إرسال رسائل البريد (إعادة تعيين كلمة السر، الدعوات، تأكيد البريد). بدونها تُطبع الرسائل في السجل |
+| `STRIPE_*` | الاشتراكات والدفع. التفاصيل في [BILLING.md](BILLING.md) |
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
@@ -108,8 +111,10 @@ git push -u origin main
 | Health Check Path | `/api/health` |
 
 3. في **Environment** أضف المتغيرات التالية:
-   - `DATABASE_URL`، `JWT_SECRET`، `QUEUE_API_KEY`، `DEMO_PASSWORD`
+   - `DATABASE_URL`، `JWT_SECRET` (32 حرفاً عشوائياً على الأقل، وإلا يرفض السيرفر التشغيل)، `APP_URL`، `DEMO_PASSWORD`
+   - `RESEND_API_KEY`، `EMAIL_FROM`، و`STRIPE_SECRET_KEY`، `STRIPE_WEBHOOK_SECRET`، `STRIPE_PRICE_STARTER`، `STRIPE_PRICE_PRO`
    - `NODE_ENV=production`
+   - بدلاً من الإعداد اليدوي يمكنك استخدام ملف `render.yaml` في جذر المستودع (Blueprint)
    - `CORS_ORIGINS=https://dashboard.falconmed.app,https://falconmed-elite-v4.vercel.app`
 4. عند التشغيل، السيرفر ينشئ الجداول تلقائياً. أما البيانات التجريبية فتُضاف مرة واحدة من جهازك عبر `npm run setup`، وهو يستخدم نفس `DATABASE_URL`.
 
@@ -130,16 +135,17 @@ git push -u origin main
 
 ## ربط آلة طابور حقيقية
 
-أي نظام طابور، مثل Quematic، يستطيع إرسال وصول المريض بطلب واحد:
+أي نظام طابور، مثل Quematic، يستطيع إرسال وصول المريض بطلب واحد. أنشئ مفتاحاً خاصاً بمنظمتك من **الإعدادات ← Queue keys** (يمكن حصره بفرع واحد، ويُعرض مرة واحدة فقط):
 
 ```http
 POST /api/queue/tickets
-X-Queue-Key: <QUEUE_API_KEY>
+X-Queue-Key: fmq_…
 Content-Type: application/json
 
 { "branchId": "br_ad01", "serviceType": "prescription", "source": "kiosk", "identified": true, "patientRef": "MRN-123456" }
 ```
 
+- المفتاح يصل إلى فروع منظمتك فقط، ويمكن إلغاؤه في أي وقت من الإعدادات.
 - لا تُرسل أسماء المرضى أبداً. الحقل `patientRef` يقبل رمزاً فقط، ويرفض أي نص فيه مسافات.
 - رقم التذكرة (`A-001`…) يُولَّد تلقائياً لكل فرع ويوم وخط خدمة.
 

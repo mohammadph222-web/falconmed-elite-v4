@@ -1,10 +1,15 @@
 import crypto from 'node:crypto';
+import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
-/** At least 8 characters, with a letter and a digit. */
+/** bcrypt work factor for new hashes. Older hashes (cost 10) still verify. */
+export const BCRYPT_COST = 12;
+export const hashPassword = (pw) => bcrypt.hash(pw, BCRYPT_COST);
+
+/** At least 10 characters, with a letter and a digit. */
 export const newPasswordSchema = z
   .string()
-  .min(8, 'Use at least 8 characters')
+  .min(10, 'Use at least 10 characters')
   .max(200)
   .regex(/[A-Za-z]/, 'Include at least one letter')
   .regex(/\d/, 'Include at least one number');

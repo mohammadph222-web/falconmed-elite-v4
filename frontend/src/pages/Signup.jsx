@@ -5,12 +5,8 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Spinner } from '../components/States';
 import { Field, FormError } from '../components/Modal';
+import { PASSWORD_RULES as RULES } from '../lib/password';
 
-const RULES = [
-  [(p) => p.length >= 8, '8+ characters'],
-  [(p) => /[A-Za-z]/.test(p), 'a letter'],
-  [(p) => /\d/.test(p), 'a number'],
-];
 
 export default function Signup() {
   const { replaceSession } = useAuth();
@@ -99,7 +95,12 @@ export default function Signup() {
             <input type="text" name="website" value={form.website} onChange={set('website')} tabIndex={-1} autoComplete="off" aria-hidden className="absolute -left-[9999px] h-0 w-0 opacity-0" />
             <label className="flex items-start gap-3 rounded-xl border border-ink-700 bg-ink-900/60 p-3.5 text-sm text-mist-300">
               <input type="checkbox" checked={form.acceptTerms} onChange={set('acceptTerms')} className="mt-0.5 h-4 w-4 accent-[#2563a8]" />
-              <span>I will use FalconMed to evaluate my pharmacy’s queue performance and will not upload patient names or other identifiers.</span>
+              <span>
+                I agree to the{' '}
+                <Link to="/terms" target="_blank" className="font-semibold text-brand-300 hover:text-brand-200">Terms of Service</Link> and{' '}
+                <Link to="/privacy" target="_blank" className="font-semibold text-brand-300 hover:text-brand-200">Privacy Policy</Link>, and will not
+                upload patient names or other identifiers.
+              </span>
             </label>
             <FormError error={error} />
             <button className="btn-primary w-full py-3" disabled={busy || !strong || !form.acceptTerms}>
@@ -109,7 +110,7 @@ export default function Signup() {
           </form>
 
           <ul className="mt-6 space-y-1.5 text-xs text-mist-500">
-            {['14 days free, everything included', 'Add as many branches and team members as you need', 'Every feature: dashboards, live queue, imports and settings'].map((t) => (
+            {['14 days free, no card needed', 'Up to 3 branches and 25 team members during the trial', 'Every feature: dashboards, live queue, imports and settings'].map((t) => (
               <li key={t} className="flex items-center gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-ok-300" /> {t}
               </li>

@@ -6,12 +6,9 @@ import { ROLE_LABEL } from '../lib/format';
 import { PageHeader, Panel } from '../components/ui';
 import { Spinner } from '../components/States';
 import { Field, FormError } from '../components/Modal';
+import { PASSWORD_RULES as RULES } from '../lib/password';
+import { TwoFactorSettings } from '../components/TwoFactor';
 
-const RULES = [
-  [(p) => p.length >= 8, 'At least 8 characters'],
-  [(p) => /[A-Za-z]/.test(p), 'A letter'],
-  [(p) => /\d/.test(p), 'A number'],
-];
 
 function PasswordForm({ onDone, submitLabel = 'Change password', currentLabel = 'Current password' }) {
   const { replaceSession } = useAuth();
@@ -127,6 +124,9 @@ export default function AccountPage() {
           ) : (
             <PasswordForm />
           )}
+        </Panel>
+        <Panel title="Two-factor sign-in" subtitle="A code from your phone at each sign-in" className="lg:col-span-2">
+          <TwoFactorSettings />
         </Panel>
       </div>
     </>

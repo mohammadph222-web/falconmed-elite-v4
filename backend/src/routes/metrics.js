@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { asyncHandler, forbidden } from '../lib/http.js';
 import { assertInOrg, parseRange, resolveScope } from '../lib/scope.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireEntitlement } from '../middleware/auth.js';
 import * as metrics from '../services/metrics.js';
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requireEntitlement);
 
 /**
  * Every metric endpoint accepts ?from=YYYY-MM-DD&to=YYYY-MM-DD and optional

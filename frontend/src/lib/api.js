@@ -35,6 +35,11 @@ let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => {
   onUnauthorized = fn;
 };
+// Called when the organisation's trial or subscription stops mid-session, so the app can lock.
+let onPaymentRequired = () => {};
+export const setPaymentRequiredHandler = (fn) => {
+  onPaymentRequired = fn;
+};
 
 /**
  * fetch wrapper: JSON in/out, bearer token, timeout sized for Render's
@@ -66,6 +71,7 @@ export async function api(path, { method = 'GET', body, params, signal, timeout 
     const json = await res.json().catch(() => null);
     if (!res.ok) {
       if (res.status === 401 && token) onUnauthorized();
+      if (res.status === 402 && json?.error?.code === 'SUBSCRIPTION_REQUIRED') onPaymentRequired();
       const e = json?.error;
       throw new ApiError(res.status, e?.message || `Request failed (${res.status})`, e?.code, e?.details);
     }
@@ -81,4 +87,22 @@ export async function api(path, { method = 'GET', body, params, signal, timeout 
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
+}
+
+/** Download a file from an authenticated endpoint (e.g. the CSV export) and hand it to the browser. */
+export async function apiDownload(path, params) {
+  const url = new URL(`${API}${path}`);
+  for (const [k, v] of Object.entries(params ?? {})) if (v) url.searchParams.set(k, v);
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenStore.get()}` } });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new ApiError(res.status, json?.error?.message || `Download failed (${res.status})`, json?.error?.code);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'download';
+  const href = URL.createObjectURL(await res.blob());
+  const a = Object.assign(document.createElement('a'), { href, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
 }

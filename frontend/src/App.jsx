@@ -5,8 +5,10 @@ import AppShell from './components/AppShell';
 import { FullScreenMessage, PageLoader } from './components/States';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import { ForgotPassword, ResetPassword, VerifyEmail } from './pages/AuthLinks';
 import { HOME } from './lib/routes';
 import { ForcedPasswordChange } from './pages/AccountPage';
+import { ForcedTwoFactorSetup } from './components/TwoFactor';
 
 const PharmacistPage = lazy(() => import('./pages/PharmacistPage'));
 const ManagerPage = lazy(() => import('./pages/ManagerPage'));
@@ -16,13 +18,40 @@ const SimulatorPage = lazy(() => import('./pages/SimulatorPage'));
 const ImportPage = lazy(() => import('./pages/ImportPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const AccountPage = lazy(() => import('./pages/AccountPage'));
-
+const BillingPage = lazy(() => import('./pages/BillingPage'));
+const Terms = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Terms })));
+const Privacy = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Privacy })));
 
 function RequireRole({ roles, children }) {
   const { user } = useAuth();
   if (!roles.includes(user.role)) return <Navigate to={HOME[user.role]} replace />;
   return children;
 }
+
+/**
+ * The product pages need an active trial or subscription. Admins are sent to
+ * Billing to sort it out; everyone else is told to ask an admin.
+ */
+function RequirePlan({ children }) {
+  const { user, logout } = useAuth();
+  if (user.entitled !== false) return children;
+  if (user.role === 'admin') return <Navigate to="/billing" replace />;
+  return (
+    <FullScreenMessage
+      title={user.entitlementReason === 'trial_ended' ? 'The free trial has ended' : 'The subscription is not active'}
+      body={`${user.orgName}’s data is safe. Ask your organisation admin to choose a plan under Billing, then sign in again.`}
+      action={{ label: 'Sign out', onClick: logout }}
+    />
+  );
+}
+
+// Pages that work with or without a session: legal text and links from emails.
+const publicRoutes = [
+  <Route key="terms" path="/terms" element={<Suspense fallback={<PageLoader />}><Terms /></Suspense>} />,
+  <Route key="privacy" path="/privacy" element={<Suspense fallback={<PageLoader />}><Privacy /></Suspense>} />,
+  <Route key="reset" path="/reset-password" element={<ResetPassword />} />,
+  <Route key="verify" path="/verify-email" element={<VerifyEmail />} />,
+];
 
 export default function App() {
   const { user, status, retry } = useAuth();
@@ -42,6 +71,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        {publicRoutes}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -49,22 +80,39 @@ export default function App() {
 
   // A temporary password must be replaced before anything else.
   if (user.mustChangePassword) return <ForcedPasswordChange />;
+  // The organisation requires two-factor sign-in for admins and this admin has not set it up.
+  if (user.twoFactorSetupRequired) return <ForcedTwoFactorSetup />;
+
+  const product = (roles, page) => (
+    <RequireRole roles={roles}>
+      <RequirePlan>{page}</RequirePlan>
+    </RequireRole>
+  );
 
   return (
-    <AppShell>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/counter" element={<RequireRole roles={['pharmacist']}><PharmacistPage /></RequireRole>} />
-          <Route path="/branch" element={<RequireRole roles={['manager']}><ManagerPage /></RequireRole>} />
-          <Route path="/network" element={<RequireRole roles={['admin']}><AdminPage /></RequireRole>} />
-          <Route path="/live" element={<RequireRole roles={['manager', 'admin']}><LiveQueuePage /></RequireRole>} />
-          <Route path="/simulator" element={<RequireRole roles={['manager', 'admin']}><SimulatorPage /></RequireRole>} />
-          <Route path="/import" element={<RequireRole roles={['manager', 'admin']}><ImportPage /></RequireRole>} />
-          <Route path="/settings" element={<RequireRole roles={['admin']}><SettingsPage /></RequireRole>} />
-          <Route path="/account" element={<AccountPage />} />
-          <Route path="*" element={<Navigate to={HOME[user.role]} replace />} />
-        </Routes>
-      </Suspense>
-    </AppShell>
+    <Routes>
+      {publicRoutes}
+      <Route
+        path="*"
+        element={
+          <AppShell>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/counter" element={product(['pharmacist'], <PharmacistPage />)} />
+                <Route path="/branch" element={product(['manager'], <ManagerPage />)} />
+                <Route path="/network" element={product(['admin'], <AdminPage />)} />
+                <Route path="/live" element={product(['manager', 'admin'], <LiveQueuePage />)} />
+                <Route path="/simulator" element={product(['manager', 'admin'], <SimulatorPage />)} />
+                <Route path="/import" element={product(['manager', 'admin'], <ImportPage />)} />
+                <Route path="/settings" element={<RequireRole roles={['admin']}><SettingsPage /></RequireRole>} />
+                <Route path="/billing" element={<RequireRole roles={['admin']}><BillingPage /></RequireRole>} />
+                <Route path="/account" element={<AccountPage />} />
+                <Route path="*" element={<Navigate to={HOME[user.role]} replace />} />
+              </Routes>
+            </Suspense>
+          </AppShell>
+        }
+      />
+    </Routes>
   );
 }
